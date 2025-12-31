@@ -124,13 +124,16 @@ app.get('/api/projects', (req, res) => {
     const cacheKey = JSON.stringify(req.query);
     if (cache.projects[cacheKey]) return res.json(cache.projects[cacheKey]);
 
-    const { sector, year_start, year_end, page = 1, limit = 10 } = req.query;
+    const { sector, year_start, year_end, search, status, funding, page = 1, limit = 10 } = req.query;
     const offset = (page - 1) * limit;
 
-    let baseQuery = "FROM projects WHERE status != 'archived'";
+    let baseQuery = "FROM projects WHERE 1=1"; // changed to 1=1 for easier appending
     const params = [];
 
-    if (sector) {
+    // Always exclude archived unless specifically requested (optional, but keeping existing logic spirit involved)
+    baseQuery += " AND status != 'archived'";
+
+    if (sector && sector !== 'all') {
         baseQuery += ' AND sector = ?';
         params.push(sector);
     }
@@ -138,6 +141,22 @@ app.get('/api/projects', (req, res) => {
     if (year_start && year_end) {
         baseQuery += ' AND year >= ? AND year <= ?';
         params.push(year_start, year_end);
+    }
+
+    if (search) {
+        baseQuery += ' AND (name LIKE ? OR locations LIKE ? OR contractor LIKE ? OR description LIKE ?)';
+        const term = `%${search}%`;
+        params.push(term, term, term, term);
+    }
+
+    if (status && status !== 'all') {
+        baseQuery += ' AND status = ?';
+        params.push(status.toLowerCase());
+    }
+
+    if (funding && funding !== 'all') {
+        baseQuery += ' AND funding_source LIKE ?';
+        params.push(`%${funding}%`);
     }
 
     const countQuery = `SELECT COUNT(*) as total ${baseQuery}`;
@@ -163,13 +182,13 @@ app.get('/api/projects', (req, res) => {
 
 // Create Project
 app.post('/api/projects', authMiddleware, verifyEditor, upload.single('image'), (req, res) => {
-    const { name, locations, sector, year, status, category, community } = req.body;
+    const { name, locations, sector, year, status, category, community, project_cost, funding_source, beneficiary_count, contractor, description } = req.body;
     const image_url = req.file ? `/uploads/projects/${req.file.filename}` : null;
 
     if (!name || !sector) return res.status(400).json({ error: 'Name and Sector are required' });
 
-    const stmt = `INSERT INTO projects (name, locations, sector, year, status, category, community, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
-    db.run(stmt, [name, locations, sector, year, status, category, community, image_url], function (err) {
+    const stmt = `INSERT INTO projects (name, locations, sector, year, status, category, community, image_url, project_cost, funding_source, beneficiary_count, contractor, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    db.run(stmt, [name, locations, sector, year, status, category, community, image_url, project_cost, funding_source, beneficiary_count, contractor, description], function (err) {
         if (err) {
             console.error('Database INSERT Error:', err);
             return res.status(500).json({ error: 'Database error: ' + err.message });
@@ -183,10 +202,10 @@ app.post('/api/projects', authMiddleware, verifyEditor, upload.single('image'), 
 // Update Project
 app.put('/api/projects/:id', authMiddleware, verifyEditor, upload.single('image'), (req, res) => {
     const { id } = req.params;
-    const { name, locations, sector, year, status, category, community } = req.body;
+    const { name, locations, sector, year, status, category, community, project_cost, funding_source, beneficiary_count, contractor, description } = req.body;
 
-    let sql = `UPDATE projects SET name=?, locations=?, sector=?, year=?, status=?, category=?, community=?`;
-    let params = [name, locations, sector, year, status, category, community];
+    let sql = `UPDATE projects SET name=?, locations=?, sector=?, year=?, status=?, category=?, community=?, project_cost=?, funding_source=?, beneficiary_count=?, contractor=?, description=?`;
+    let params = [name, locations, sector, year, status, category, community, project_cost, funding_source, beneficiary_count, contractor, description];
 
     if (req.file) {
         sql += `, image_url=?`;
@@ -224,26 +243,107 @@ app.delete('/api/projects/:id', authMiddleware, verifyEditor, verifyDeletePermis
 });
 
 // Bulk Upload
+// Bulk Upload
+
+// Download Template Endpoint
+app.get('/api/projects/template', (req, res) => {
+    try {
+        const headers = [
+            'Name', 'Locations', 'Sector', 'Category', 'Year', 'Status',
+            'Cost', 'Funding', 'Beneficiaries', 'Contractor', 'Description'
+        ];
+
+        // Create a dummy row for example
+        const exampleRow = [
+            'Example School Block', 'Tamale, Northern', 'Education', 'Infrastructure', '2025', 'Planned',
+            '50000', 'MP Common Fund', '1500', 'ABC Construction', 'Construction of a 3-unit classroom block'
+        ];
+
+        const wb = xlsx.utils.book_new();
+        const ws = xlsx.utils.aoa_to_sheet([headers, exampleRow]);
+        xlsx.utils.book_append_sheet(wb, ws, 'Template');
+
+        const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+        res.setHeader('Content-Disposition', 'attachment; filename="Project_Upload_Template.xlsx"');
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.send(buffer);
+    } catch (error) {
+        console.error('Template generation error:', error);
+        res.status(500).json({ error: 'Failed to generate template' });
+    }
+});
+
 app.post('/api/projects/bulk-upload', authMiddleware, verifyUploader, memoryUpload.single('file'), (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
     try {
         const wb = xlsx.read(req.file.buffer, { type: 'buffer' });
         const sheetName = wb.SheetNames[0];
-        const rows = xlsx.utils.sheet_to_json(wb.Sheets[sheetName]);
 
+        // Read as array of arrays to find the header row manually
+        const rawData = xlsx.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1 });
+
+        console.log(`[Bulk Upload] Total rows read: ${rawData.length}`);
+
+        // Find the header row (look for "name" and "sector")
+        let headerRowIndex = -1;
+        let headers = [];
+
+        for (let i = 0; i < Math.min(rawData.length, 10); i++) {
+            const row = rawData[i].map(c => String(c || '').trim().toLowerCase());
+            if (row.includes('name') && row.includes('sector')) {
+                headerRowIndex = i;
+                headers = row;
+                break;
+            }
+        }
+
+        if (headerRowIndex === -1) {
+            console.log('[Bulk Upload] Could not find valid header row (Name, Sector).');
+            return res.status(400).json({ error: 'Invalid file format. Header row with "Name" and "Sector" not found.' });
+        }
+
+        console.log(`[Bulk Upload] Found headers at row ${headerRowIndex}:`, headers);
+
+        // Map column indices to keys
+        const colMap = {};
+        headers.forEach((h, idx) => {
+            if (['name', 'locations', 'sector', 'year', 'status', 'category', 'community', 'project_cost', 'cost', 'funding_source', 'funding', 'beneficiary_count', 'beneficiaries', 'contractor', 'description'].includes(h)) {
+                colMap[h] = idx;
+            }
+        });
+
+        const rowsToProcess = rawData.slice(headerRowIndex + 1);
         let inserted = 0;
         let skipped = 0;
 
         db.serialize(() => {
             db.run('BEGIN TRANSACTION');
-            const stmt = db.prepare(`INSERT INTO projects (name, locations, sector, year, status, category, community) VALUES (?, ?, ?, ?, ?, ?, ?)`);
+            // Added 'image_url' and new fields (cost, funding, beneficiaries, contractor, description)
+            const stmt = db.prepare(`INSERT INTO projects (name, locations, sector, year, status, category, community, image_url, project_cost, funding_source, beneficiary_count, contractor, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
-            rows.forEach(row => {
+            rowsToProcess.forEach((rowArray, idx) => {
+                const row = {};
+                // Extract data using colMap
+                Object.keys(colMap).forEach(key => {
+                    row[key] = rowArray[colMap[key]];
+                });
+
                 if (row.name && row.sector) {
-                    stmt.run([row.name, row.locations, row.sector, row.year, row.status, row.category, row.community]);
+                    stmt.run([
+                        String(row.name).trim(),
+                        String(row.locations || '').trim(),
+                        String(row.sector).toLowerCase().trim(),
+                        String(row.year || '').trim(),
+                        row.status ? String(row.status).toLowerCase().trim() : 'planned',
+                        row.category ? String(row.category).toLowerCase().trim() : 'infrastructure',
+                        String(row.community || '').trim(),
+                        null
+                    ]);
                     inserted++;
                 } else {
+                    if (idx < 3) console.log(`[Bulk Upload] Skipped Data Row ${idx}:`, row);
                     skipped++;
                 }
             });
@@ -252,13 +352,65 @@ app.post('/api/projects/bulk-upload', authMiddleware, verifyUploader, memoryUplo
             db.run('COMMIT', () => {
                 clearCache();
                 logAudit(req, 'BULK_UPLOAD', { inserted, skipped });
+                console.log(`[Bulk Upload] Completed. Inserted: ${inserted}, Skipped: ${skipped}`);
                 res.json({ message: 'Upload processed', inserted, skipped });
             });
         });
-
     } catch (err) {
+        console.error(err);
         res.status(500).json({ error: 'Failed to process Excel file' });
     }
+});
+
+// --- METRICS & STATS API ---
+app.get('/api/metrics', (req, res) => {
+    const statsQuery = `
+        SELECT 
+            (SELECT COUNT(*) FROM projects) as total,
+            (SELECT COUNT(*) FROM projects WHERE LOWER(status) = 'completed') as completed,
+            (SELECT COUNT(*) FROM projects WHERE LOWER(status) = 'ongoing') as ongoing
+    `;
+
+    db.get(statsQuery, [], (err, counts) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        db.all("SELECT label, val FROM impact_metrics", [], (err, rows) => {
+            if (err) return res.status(500).json({ error: err.message });
+
+            const metrics = {};
+            rows.forEach(r => metrics[r.label] = r.val);
+
+            res.json({
+                counts,
+                metrics // e.g. { scholarships: '500', beneficiaries: '50K+' }
+            });
+        });
+    });
+});
+
+app.put('/api/metrics', authMiddleware, verifySuperAdmin, (req, res) => {
+    const { label, value } = req.body; // label: 'scholarships' or 'beneficiaries'
+    if (!label || !value) return res.status(400).json({ error: 'Label and value required' });
+
+    db.get("SELECT id FROM impact_metrics WHERE label = ?", [label], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        if (row) {
+            db.run("UPDATE impact_metrics SET val = ? WHERE label = ?", [value, label], (err) => {
+                if (err) return res.status(500).json({ error: err.message });
+                clearCache();
+                logAudit(req, 'UPDATE_METRIC', { label, value });
+                res.json({ message: 'Metric updated' });
+            });
+        } else {
+            db.run("INSERT INTO impact_metrics (sector, label, val) VALUES (?, ?, ?)", ['general', label, value], (err) => {
+                if (err) return res.status(500).json({ error: err.message });
+                clearCache();
+                logAudit(req, 'CREATE_METRIC', { label, value });
+                res.json({ message: 'Metric created' });
+            });
+        }
+    });
 });
 
 // Scholarships KPI

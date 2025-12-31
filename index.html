@@ -16,6 +16,10 @@
 
             <!-- Header Section -->
             <header class="dashboard-header">
+                <button id="auth-btn" class="login-btn-floating" style="margin-left: 0; margin-right: auto;">
+                    <i class="fas fa-user-circle"></i> Login
+                </button>
+
                 <div class="mp-profile">
                     <div class="mp-image-container">
                         <img src="Hon Suahlihu 1.png" alt="Hon. Sualihu Dandaawa" class="mp-photo">
@@ -26,6 +30,8 @@
                         <p class="region"><i class="fas fa-location-dot"></i> Northern Region, Ghana</p>
                     </div>
                 </div>
+
+
 
                 <div class="header-stats-grid">
                     <div class="stat-card accent">
@@ -52,7 +58,9 @@
                     </div>
                     <div class="stat-card gold">
                         <span class="stat-value" id="stat-impact">50K+</span>
-                        <span class="stat-label">Estimated Beneficiaries</span>
+                        <span class="stat-label">Estimated Beneficiaries <i class="fas fa-pencil-alt edit-kpi-btn"
+                                id="edit-beneficiaries-btn"
+                                style="display:none; cursor:pointer; font-size:0.8rem; margin-left:5px;"></i></span>
                         <i class="fas fa-users icon-bg"></i>
                     </div>
                 </div>
@@ -61,6 +69,32 @@
             <!-- Toolbar: Time Slicer can go here or integrated -->
             <div class="toolbar-container"
                 style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <div class="filters-group" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                    <div class="search-wrapper" style="position: relative;">
+                        <i class="fas fa-search"
+                            style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-dim); font-size: 0.8rem;"></i>
+                        <input type="text" id="smart-search" class="glass-input" placeholder="Search projects..."
+                            style="padding-left: 30px; min-width: 200px;">
+                    </div>
+
+                    <select id="status-filter" class="glass-input">
+                        <option value="all">All Status</option>
+                        <option value="completed">Completed</option>
+                        <option value="ongoing">Ongoing</option>
+                        <option value="planned">Planned</option>
+                    </select>
+
+                    <select id="funding-filter" class="glass-input">
+                        <option value="all">All Funding</option>
+                        <option value="MP Common Fund">MP Common Fund</option>
+                        <option value="GETFund">GETFund</option>
+                        <option value="SiF">SiF (Social Investment Fund)</option>
+                        <option value="Private">Private/Donor</option>
+                        <option value="IGF">IGF</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+
                 <div class="time-slicer-wrapper">
                     <select id="time-slicer" class="glass-input">
                         <option value="all">All Years</option>
@@ -204,17 +238,272 @@
                         <p style="margin-bottom: 8px;"><i class="fas fa-database"></i> Data Sources: MP Office | Karaga
                             District Assembly</p>
                         <p><i class="fas fa-calendar-check"></i> Last Updated: April 2024</p>
-                        <div
-                            style="margin-top: 15px; display: flex; justify-content: space-between; align-items: center;">
-                            <button id="auth-btn" class="btn-primary" style="padding: 6px 12px; font-size: 0.75rem;"><i
-                                    class="fas fa-user-circle"></i> Login</button>
-                        </div>
+
                     </div>
                 </aside>
             </div>
         </main>
     </div>
-    <script src="main.js"></script>
+
+    <!-- MODALS (Moved from JS to HTML for reliability) -->
+
+    <!-- Admin/Project Modal -->
+    <div id="admin-modal"
+        style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:1000; justify-content:center; align-items:center; backdrop-filter: blur(5px);">
+        <div class="glass-panel"
+            style="width: 90%; max-width: 800px; padding: 40px; position:relative; max-height: 90vh; overflow-y: auto;">
+            <div class="modal-header-styled">
+                <h3 id="modal-title">Manage Project</h3>
+                <button id="close-modal"
+                    style="background:none; border:none; color:var(--text-dim); font-size:1.2rem; cursor:pointer;"><i
+                        class="fas fa-times"></i></button>
+            </div>
+
+            <form id="project-form" class="modern-form">
+                <input type="hidden" id="p-id">
+
+                <div class="form-group full-width">
+                    <label class="form-label">Project Name</label>
+                    <input type="text" id="p-name" class="form-control" placeholder="e.g. ICT Fongu JHS" required>
+                </div>
+
+                <div class="form-group full-width">
+                    <label class="form-label">Location</label>
+                    <input type="text" id="p-locations" class="form-control" placeholder="e.g. Wa, Upper West" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Sector</label>
+                    <select id="p-sector" class="form-control" required>
+                        <option value="education">Education</option>
+                        <option value="health">Health</option>
+                        <option value="roads">Roads & Transport</option>
+                        <option value="water">Water & Sanitation</option>
+                        <option value="ict">ICT</option>
+                        <option value="social">Social Protection</option>
+                        <option value="agriculture">Agriculture</option>
+                        <option value="youth">Youth Development</option>
+                        <option value="sports">Sports</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Category</label>
+                    <select id="p-category" class="form-control" required>
+                        <option value="infra">Infrastructure</option>
+                        <option value="support">Logistical Support</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Year</label>
+                    <input type="text" id="p-year" class="form-control" placeholder="e.g. 2026" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Status</label>
+                    <select id="p-status" class="form-control" required>
+                        <option value="completed">Completed</option>
+                        <option value="ongoing">Ongoing</option>
+                        <option value="planned">Planned</option>
+                    </select>
+                </div>
+
+                <div class="form-group full-width">
+                    <label class="form-label">Project Description</label>
+                    <textarea id="p-description" class="form-control"
+                        placeholder="Enter detailed project description..." rows="3"
+                        style="resize:vertical;"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Estimated Cost (GHS)</label>
+                    <input type="text" id="p-cost" class="form-control" placeholder="e.g. 50,000">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Funding Source</label>
+                    <select id="p-funding" class="form-control">
+                        <option value="">Select Funding Source...</option>
+                        <option value="MP Common Fund">MP Common Fund</option>
+                        <option value="GETFund">GETFund</option>
+                        <option value="SiF">SiF (Social Investment Fund)</option>
+                        <option value="Private">Private/Donor</option>
+                        <option value="IGF">IGF (Internal Generated Fund)</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Beneficiary Count</label>
+                    <input type="number" id="p-beneficiaries" class="form-control" placeholder="e.g. 1500">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Contractor</label>
+                    <input type="text" id="p-contractor" class="form-control" placeholder="e.g. ABC Construction Ltd">
+                </div>
+
+                <div class="form-group full-width">
+                    <label class="form-label">Project Image (Optional)</label>
+                    <div class="file-upload-wrapper" id="drop-zone">
+                        <input type="file" id="p-image" accept="image/*">
+                        <div class="file-upload-content">
+                            <i class="fas fa-cloud-upload-alt"></i>
+                            <p id="file-text">Click or Drag to Upload Image</p>
+                        </div>
+                        <img id="image-preview" class="file-preview">
+                    </div>
+                </div>
+
+                <div class="full-width" style="margin-top: 10px;">
+                    <button type="submit" class="btn-primary" style="width: 100%; padding: 12px; font-size: 1rem;">Save
+                        Project</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Bulk Upload Modal -->
+    <div id="upload-modal"
+        style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); z-index:1000; justify-content:center; align-items:center;">
+        <div class="glass-panel upload-modal-content" style="position:relative;">
+            <button id="close-upload"
+                style="position:absolute; top:20px; right:20px; background:none; border:none; color:white; font-size:1.5rem; cursor:pointer; opacity:0.7;">&times;</button>
+
+            <div class="upload-header">
+                <h3><i class="fas fa-file-excel"></i> Bulk Upload</h3>
+            </div>
+
+            <form id="upload-form">
+                <div class="upload-drop-zone" id="upload-drop-zone">
+                    <input type="file" id="u-file" accept=".xlsx" required class="upload-file-input">
+                    <i class="fas fa-cloud-upload-alt upload-icon"></i>
+                    <div class="upload-text">Drag & Drop Excel File</div>
+                    <div class="upload-subtext">or click to browse</div>
+                    <div id="file-name-display"
+                        style="margin-top:15px; color:var(--accent-gold); font-weight:600; font-size:0.95rem;"></div>
+                </div>
+                <button type="submit" class="btn-upload-submit"><i class="fas fa-upload"></i> Process Upload</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit User Modal -->
+    <div id="edit-user-modal"
+        style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1100; justify-content:center; align-items:center;">
+        <div class="glass-panel" style="width: 90%; max-width: 400px; padding: 25px; position:relative;">
+            <button id="close-edit-user"
+                style="position:absolute; top:10px; right:10px; background:none; border:none; color:white; font-size:1.2rem; cursor:pointer;">&times;</button>
+            <h3 style="margin-bottom:20px;">Edit User</h3>
+            <form id="edit-user-form" style="display:flex; flex-direction:column; gap:15px;">
+                <input type="hidden" id="eu-id">
+                <div>
+                    <label style="font-size:0.8rem; color:var(--text-dim);">Username</label>
+                    <input type="text" id="eu-username" disabled
+                        style="width:100%; padding:10px; background:rgba(255,255,255,0.05); border:1px solid #444; color:var(--text-dim); border-radius: var(--radius-sm);">
+                </div>
+                <div>
+                    <label style="font-size:0.8rem; color:var(--text-dim);">Role</label>
+                    <select id="eu-role"
+                        style="width:100%; padding:10px; background:rgba(0,0,0,0.5); border:1px solid #444; color:white; border-radius: var(--radius-sm);">
+                        <option value="analyst">Analyst</option>
+                        <option value="editor">Editor</option>
+                        <option value="regional_admin">Regional Admin</option>
+                        <option value="super_admin">Super Admin</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size:0.8rem; color:var(--text-dim);">New Password (Optional)</label>
+                    <input type="password" id="eu-password" placeholder="Leave blank to keep current"
+                        style="width:100%; padding:10px; background:rgba(255,255,255,0.1); border:1px solid #444; color:white; border-radius: var(--radius-sm);">
+                </div>
+                <button type="submit" class="btn-primary">Update User</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Login Modal -->
+    <div id="login-modal"
+        style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:2000; justify-content:center; align-items:center;">
+        <div class="glass-panel"
+            style="width: 90%; max-width: 350px; padding: 25px; position:relative; text-align:center;">
+            <button id="close-login"
+                style="position:absolute; top:10px; right:10px; background:none; border:none; color:white; font-size:1.2rem; cursor:pointer;">&times;</button>
+            <h3 id="auth-title" style="margin-bottom:20px;"><i class="fas fa-user-circle"></i> Portal Login</h3>
+            <form id="login-form" style="display:flex; flex-direction:column; gap:15px;">
+                <input type="text" id="l-username" placeholder="Username" required
+                    style="padding:10px; background:rgba(255,255,255,0.1); border:1px solid #444; color:white; border-radius: var(--radius-sm);">
+                <input type="password" id="l-password" placeholder="Password" required
+                    style="padding:10px; background:rgba(255,255,255,0.1); border:1px solid #444; color:white; border-radius: var(--radius-sm);">
+                <div id="register-fields" style="display:none; flex-direction:column; gap:15px;">
+                    <p style="font-size:0.8rem; color:var(--text-dim); text-align:left;">* Password must be 8+ chars
+                        with number/special char.</p>
+                </div>
+                <button type="submit" id="auth-submit-btn" class="btn-primary" style="justify-content:center;">Sign
+                    In</button>
+            </form>
+            <p style="margin-top:15px; font-size:0.9rem;"><a href="#" id="toggle-auth"
+                    style="color:var(--accent-gold);">Need an account? Register</a></p>
+        </div>
+    </div>
+
+    <!-- User Management Modal -->
+    <div id="user-modal"
+        style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); z-index:1000; justify-content:center; align-items:center;">
+        <div class="glass-panel user-modal-content" style="position:relative; max-height:85vh; overflow-y:auto;">
+            <button id="close-user-modal"
+                style="position:absolute; top:20px; right:20px; background:none; border:none; color:white; font-size:1.5rem; cursor:pointer; opacity:0.7; transition:opacity 0.3s;">&times;</button>
+
+            <div class="user-mgmt-header">
+                <h3>User Governance</h3>
+                <button id="msg-create-user-btn" class="btn-primary"
+                    style="padding:10px 20px; font-size:0.95rem; box-shadow: 0 4px 15px rgba(46, 204, 113, 0.3);"><i
+                        class="fas fa-plus-circle"></i> Add New User</button>
+            </div>
+
+            <div id="create-user-form-container" style="display:none; border-radius:15px;">
+                <h4><i class="fas fa-user-plus"></i> Create New User</h4>
+                <form id="create-user-form"
+                    style="display:grid; grid-template-columns: 1fr 1fr; gap:15px; margin-top:15px;">
+                    <div class="form-group">
+                        <label class="form-label">Username</label>
+                        <input type="text" id="cu-username" required class="glass-input" style="padding:12px;">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Password</label>
+                        <input type="password" id="cu-password" placeholder="Min. 8 chars, 1 number" required
+                            class="glass-input" style="padding:12px;">
+                    </div>
+                    <div class="form-group full-width">
+                        <label class="form-label">Role</label>
+                        <select id="cu-role" class="glass-input" style="padding:12px;">
+                            <option value="analyst">Analyst</option>
+                            <option value="editor">Editor</option>
+                            <option value="regional_admin">Regional Admin</option>
+                            <option value="super_admin">Super Admin</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn-primary"
+                        style="grid-column:1/-1; padding:12px; font-size:1rem; margin-top:10px;">Create Account</button>
+                </form>
+            </div>
+
+            <table class="user-table">
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Role</th>
+                        <th>Status</th>
+                        <th style="text-align:right;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="user-tbody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="main.js?v=5"></script>
 </body>
 
 </html>

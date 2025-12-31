@@ -16,21 +16,95 @@ document.addEventListener('DOMContentLoaded', () => {
     const widgetMetrics = document.querySelector('#widget-metrics');
     const compRateVal = document.querySelector('#comp-rate-val');
     const compRateBar = document.querySelector('#comp-rate-bar');
-    const authBtn = document.querySelector('#auth-btn');
+    const authBtn = document.getElementById('auth-btn');
+    const timeSlicer = document.getElementById('time-slicer');
+
+    // --- EVENT DELEGATION (Bulletproof - High Priority) ---
+    document.addEventListener('click', (e) => {
+        // Auth Button
+        const btn = e.target.closest('#auth-btn');
+        if (btn) {
+            e.preventDefault();
+            console.log('Delegate: Auth click. User:', currentUser);
+            if (currentUser) {
+                currentUser = null;
+                localStorage.removeItem('mp_tracker_user');
+                try { updateAdminUI(); } catch (e) { console.error('UI update error:', e); }
+                showToast('Logging out...', 'info');
+                setTimeout(() => window.location.reload(), 500);
+            } else {
+                document.getElementById('login-modal').style.display = 'flex';
+            }
+        }
+
+        // Modal Close Buttons (Delegate)
+        if (e.target.closest('#close-login')) document.getElementById('login-modal').style.display = 'none';
+        if (e.target.closest('#close-upload')) document.getElementById('upload-modal').style.display = 'none';
+        if (e.target.closest('#close-modal')) document.getElementById('admin-modal').style.display = 'none';
+        if (e.target.closest('#close-user-modal')) document.getElementById('user-modal').style.display = 'none';
+        if (e.target.closest('#close-edit-user')) document.getElementById('edit-user-modal').style.display = 'none';
+    });
+
+    // --- DASHBOARD STATS ---
+    window.fetchDashboardStats = async () => {
+        try {
+            const res = await fetch('/api/metrics');
+            const data = await res.json();
+
+            if (data.counts) {
+                document.getElementById('stat-total').innerText = data.counts.total;
+                document.getElementById('stat-completed').innerText = data.counts.completed;
+                document.getElementById('stat-ongoing').innerText = data.counts.ongoing;
+            }
+
+            if (data.metrics) {
+                // Scholarships
+                const scholVal = data.metrics['Scholarships'] || data.metrics['scholarships'] || '0';
+                document.getElementById('stat-scholarships').innerHTML = `${scholVal} <i class="fas fa-pencil-alt edit-kpi-btn" id="edit-scholarships-btn" style="display:none; cursor:pointer; font-size:0.8rem; margin-left:5px;"></i>`;
+
+                // Beneficiaries
+                const benVal = data.metrics['Beneficiaries'] || data.metrics['beneficiaries'] || '50K+';
+                document.getElementById('stat-impact').innerHTML = `${benVal} <i class="fas fa-pencil-alt edit-kpi-btn" id="edit-beneficiaries-btn" style="display:none; cursor:pointer; font-size:0.8rem; margin-left:5px;"></i>`;
+            }
+            // Re-bind edit buttons if visible
+            updateAdminUI();
+        } catch (err) { console.error('Stats error:', err); }
+    };
 
     // --- INIT ---
-    checkAuth();
-    fetchSectorData('education', 1, true);
-    fetchScholarships(); // Fetch initial value
-    renderTable();
-    injectModals();
+    try {
+        checkAuth();
+        fetchSectorData('education', 1, true);
+        fetchDashboardStats();
+        renderTable();
+        injectModals();
+    } catch (err) {
+        console.error('Critical Layout Initialization Error:', err);
+    }
 
     // --- EVENT LISTENERS ---
-    const timeSlicer = document.getElementById('time-slicer');
     if (timeSlicer) {
-        timeSlicer.addEventListener('change', () => {
-            fetchSectorData(currentSector, 1, true);
+        timeSlicer.addEventListener('change', () => fetchSectorData(currentSector, 1, true));
+    }
+
+    const searchInput = document.getElementById('smart-search');
+    const statusFilter = document.getElementById('status-filter');
+    const fundingFilter = document.getElementById('funding-filter');
+
+    if (searchInput) {
+        let debounceTimer;
+        searchInput.addEventListener('input', () => {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => fetchSectorData(currentSector, 1, true), 400);
         });
+    }
+
+    if (statusFilter) {
+        statusFilter.addEventListener('change', () => fetchSectorData(currentSector, 1, true));
+    }
+
+    if (fundingFilter) {
+        fundingFilter.addEventListener('change', () => fetchSectorData(currentSector, 1, true));
     }
     tabBtns.forEach(btn => {
         btn.addEventListener('click', () => {
@@ -38,14 +112,6 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.classList.add('active');
             fetchSectorData(btn.dataset.sector, 1, true);
         });
-    });
-
-    authBtn.addEventListener('click', () => {
-        if (currentUser) {
-            logout();
-        } else {
-            document.getElementById('login-modal').style.display = 'flex';
-        }
     });
 
     // --- FUNCTIONS ---
@@ -150,49 +216,66 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    const editScholarshipsBtn = document.getElementById('edit-scholarships-btn');
-    if (editScholarshipsBtn) {
-        editScholarshipsBtn.addEventListener('click', async () => {
-            const currentVal = document.getElementById('stat-scholarships').textContent;
-            const newVal = prompt("Enter new Scholarships value:", currentVal);
-            if (newVal !== null && newVal !== currentVal) {
-                try {
-                    const res = await fetch('/api/kpi/scholarships', {
-                        method: 'PUT',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${currentUser.token}`
-                        },
-                        body: JSON.stringify({ value: newVal })
-                    });
-                    if (res.ok) {
-                        fetchScholarships();
-                        showToast('Scholarships updated', 'success');
-                    } else {
-                        showToast('Update failed', 'error');
-                    }
-                } catch (e) {
-                    showToast('Error updating value', 'error');
+    // --- HELPER: Edit Metrics ---
+    window.editMetric = async (label) => {
+        const idMap = { 'Scholarships': 'stat-scholarships', 'Beneficiaries': 'stat-impact' };
+        const currentText = document.getElementById(idMap[label]).innerText.split(' ')[0] || ''; // simple parse
+
+        const newVal = prompt(`Enter new value for ${label}:`, currentText);
+        if (newVal !== null && newVal !== currentText) {
+            try {
+                const res = await fetch('/api/metrics', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentUser.token}`
+                    },
+                    body: JSON.stringify({ label, value: newVal })
+                });
+
+                if (res.ok) {
+                    showToast(`${label} updated`, 'success');
+                    fetchDashboardStats();
+                } else {
+                    const d = await res.json();
+                    showToast(d.error || 'Update failed', 'error');
                 }
-            }
-        });
-    }
+            } catch (err) { console.error(err); showToast('Update error', 'error'); }
+        }
+    };
 
     async function fetchSectorData(sectorKey, page = 1, reset = false, limitOverride = null) {
         currentSector = sectorKey;
         currentPage = page;
         const limit = limitOverride || ITEMS_PER_PAGE;
 
-        // Time Slicer Logic
+        // Time Slicer & Filters Logic
         const timeSlicer = document.getElementById('time-slicer');
-        let yearQuery = '';
+        const searchInput = document.getElementById('smart-search');
+        const statusFilter = document.getElementById('status-filter');
+        const fundingFilter = document.getElementById('funding-filter');
+
+        let queryParams = `?sector=${sectorKey}&page=${page}&limit=${limit}`;
+
         if (timeSlicer && timeSlicer.value !== 'all') {
             const [start, end] = timeSlicer.value.split('-');
-            yearQuery = `&year_start=${start}&year_end=${end}`;
+            queryParams += `&year_start=${start}&year_end=${end}`;
+        }
+
+        if (searchInput && searchInput.value.trim()) {
+            queryParams += `&search=${encodeURIComponent(searchInput.value.trim())}`;
+        }
+
+        if (statusFilter && statusFilter.value !== 'all') {
+            queryParams += `&status=${encodeURIComponent(statusFilter.value)}`;
+        }
+
+        if (fundingFilter && fundingFilter.value !== 'all') {
+            queryParams += `&funding=${encodeURIComponent(fundingFilter.value)}`;
         }
 
         try {
-            const projectsRes = await fetch(`/api/projects?sector=${sectorKey}&page=${page}&limit=${limit}${yearQuery}`);
+            const projectsRes = await fetch(`/api/projects${queryParams}`);
             const projectsData = await projectsRes.json();
 
             if (reset) currentProjects = projectsData.projects;
@@ -309,9 +392,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     <span class="p-title">${p.name}</span>
                     <span class="year-box">${p.year}</span>
                 </div>
+
                 <span class="p-loc">${p.locations}</span>
                 <div class="p-meta">
                     <span class="tag ${p.status}">${p.status}</span>
+                    ${p.project_cost ? `<span class="tag" style="background:rgba(255,255,255,0.1); color:var(--text-main);"><i class="fas fa-money-bill-wave" style="color:var(--accent-gold); margin-right:4px;"></i> ${p.project_cost}</span>` : ''}
+                    ${p.beneficiary_count ? `<span class="tag" style="background:rgba(255,255,255,0.1); color:var(--text-main);"><i class="fas fa-users" style="color:var(--accent-teal); margin-right:4px;"></i> ${p.beneficiary_count}</span>` : ''}
                 </div>
                 ${adminActions}
             </div>
@@ -366,182 +452,12 @@ document.addEventListener('DOMContentLoaded', () => {
         toastDiv.className = 'toast';
         document.body.appendChild(toastDiv);
 
-        // --- MODAL HTML ---
-        const modalHTML = `
-            <div id="login-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:2000; justify-content:center; align-items:center;">
-                 <div class="glass-panel" style="width: 90%; max-width: 350px; padding: 25px; position:relative; text-align:center;">
-                    <button id="close-login" style="position:absolute; top:10px; right:10px; background:none; border:none; color:white; font-size:1.2rem; cursor:pointer;">&times;</button>
-                    <h3 id="auth-title" style="margin-bottom:20px;"><i class="fas fa-user-circle"></i> Portal Login</h3>
-                    <form id="login-form" style="display:flex; flex-direction:column; gap:15px;">
-                        <input type="text" id="l-username" placeholder="Username" required style="padding:10px; background:rgba(255,255,255,0.1); border:1px solid #444; color:white; border-radius: var(--radius-sm);">
-                        <input type="password" id="l-password" placeholder="Password" required style="padding:10px; background:rgba(255,255,255,0.1); border:1px solid #444; color:white; border-radius: var(--radius-sm);">
-                        <div id="register-fields" style="display:none; flex-direction:column; gap:15px;">
-                            <p style="font-size:0.8rem; color:var(--text-dim); text-align:left;">* Password must be 8+ chars with number/special char.</p>
-                        </div>
-                        <button type="submit" id="auth-submit-btn" class="btn-primary" style="justify-content:center;">Sign In</button>
-                    </form>
-                    <p style="margin-top:15px; font-size:0.9rem;"><a href="#" id="toggle-auth" style="color:var(--accent-gold);">Need an account? Register</a></p>
-                 </div>
-            </div>
 
-            <div id="user-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1000; justify-content:center; align-items:center;">
-                <div class="glass-panel" style="width: 90%; max-width: 700px; padding: 20px; position:relative; max-height:80vh; overflow-y:auto;">
-                    <button id="close-user-modal" style="position:absolute; top:10px; right:10px; background:none; border:none; color:white; font-size:1.2rem; cursor:pointer;">&times;</button>
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                        <h3 style="margin:0;">User Management</h3>
-                        <button id="msg-create-user-btn" class="btn-primary" style="padding:6px 12px; font-size:0.8rem;"><i class="fas fa-plus"></i> Add User</button>
-                    </div>
-                    <div id="create-user-form-container" style="display:none; background:rgba(255,255,255,0.05); padding:15px; border-radius:10px; margin-bottom:15px;">
-                         <h4>Create New User</h4>
-                         <form id="create-user-form" style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:10px;">
-                            <input type="text" id="cu-username" placeholder="Username" required class="glass-input">
-                            <input type="password" id="cu-password" placeholder="Password (Complex)" required class="glass-input">
-                            <select id="cu-role" class="glass-input">
-                                <option value="analyst">Analyst</option>
-                                <option value="editor">Editor</option>
-                                <option value="regional_admin">Regional Admin</option>
-                                <option value="super_admin">Super Admin</option>
-                            </select>
-                            <button type="submit" class="btn-primary" style="grid-column:1/-1;">Create User</button>
-                         </form>
-                    </div>
-                    <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
-                        <thead>
-                            <tr style="border-bottom:1px solid #444; text-align:left;">
-                                <th style="padding:10px;">Username</th>
-                                <th style="padding:10px;">Role</th>
-                                <th style="padding:10px;">Status</th>
-                                <th style="padding:10px;">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="user-tbody"></tbody>
-                    </table>
-                </div>
-            </div>
 
-            <div id="admin-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:1000; justify-content:center; align-items:center; backdrop-filter: blur(5px);">
-                <div class="glass-panel" style="width: 90%; max-width: 800px; padding: 40px; position:relative; max-height: 90vh; overflow-y: auto;">
-                    <div class="modal-header-styled">
-                        <h3 id="modal-title">Manage Project</h3>
-                        <button id="close-modal" style="background:none; border:none; color:var(--text-dim); font-size:1.2rem; cursor:pointer;"><i class="fas fa-times"></i></button>
-                    </div>
-                    
-                    <form id="project-form" class="modern-form">
-                        <input type="hidden" id="p-id">
-                        
-                        <div class="form-group full-width">
-                            <label class="form-label">Project Name</label>
-                            <input type="text" id="p-name" class="form-control" placeholder="e.g. ICT Fongu JHS" required>
-                        </div>
 
-                        <div class="form-group full-width">
-                            <label class="form-label">Location</label>
-                            <input type="text" id="p-locations" class="form-control" placeholder="e.g. Wa, Upper West" required>
-                        </div>
 
-                        <div class="form-group">
-                            <label class="form-label">Sector</label>
-                            <select id="p-sector" class="form-control" required>
-                                <option value="education">Education</option>
-                                <option value="health">Health</option>
-                                <option value="roads">Roads & Transport</option>
-                                <option value="water">Water & Sanitation</option>
-                                <option value="ict">ICT</option>
-                                <option value="social">Social Protection</option>
-                                <option value="agriculture">Agriculture</option>
-                                <option value="youth">Youth Development</option>
-                                <option value="sports">Sports</option>
-                            </select>
-                        </div>
+        // Bind Modal Events - Handled by Delegation now
 
-                        <div class="form-group">
-                            <label class="form-label">Category</label>
-                             <select id="p-category" class="form-control" required>
-                                <option value="infra">Infrastructure</option>
-                                <option value="support">Logistical Support</option>
-                            </select>
-                        </div>
-
-                        <div class="form-group">
-                            <label class="form-label">Year</label>
-                            <input type="text" id="p-year" class="form-control" placeholder="e.g. 2026" required>
-                        </div>
-
-                        <div class="form-group">
-                            <label class="form-label">Status</label>
-                            <select id="p-status" class="form-control" required>
-                                <option value="completed">Completed</option>
-                                <option value="ongoing">Ongoing</option>
-                                <option value="planned">Planned</option>
-                            </select>
-                        </div>
-                        
-                        <div class="form-group full-width">
-                            <label class="form-label">Project Image (Optional)</label>
-                            <div class="file-upload-wrapper" id="drop-zone">
-                                <input type="file" id="p-image" accept="image/*">
-                                <div class="file-upload-content">
-                                    <i class="fas fa-cloud-upload-alt"></i>
-                                    <p id="file-text">Click or Drag to Upload Image</p>
-                                </div>
-                                <img id="image-preview" class="file-preview">
-                            </div>
-                        </div>
-
-                        <div class="full-width" style="margin-top: 10px;">
-                            <button type="submit" class="btn-primary" style="width: 100%; padding: 12px; font-size: 1rem;">Save Project</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-            
-            <div id="upload-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1000; justify-content:center; align-items:center;">
-                 <div class="glass-panel" style="width: 90%; max-width: 400px; padding: 20px; position:relative;">
-                    <button id="close-upload" style="position:absolute; top:10px; right:10px; background:none; border:none; color:white; font-size:1.2rem; cursor:pointer;">&times;</button>
-                    <h3 style="margin-bottom:15px;">Bulk Upload</h3>
-                    <form id="upload-form">
-                        <input type="file" id="u-file" accept=".xlsx" required style="margin-bottom:15px; color:white;">
-                        <button type="submit" class="btn-primary">Upload</button>
-                    </form>
-                 </div>
-            </div>
-
-            <div id="edit-user-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1100; justify-content:center; align-items:center;">
-                 <div class="glass-panel" style="width: 90%; max-width: 400px; padding: 25px; position:relative;">
-                    <button id="close-edit-user" style="position:absolute; top:10px; right:10px; background:none; border:none; color:white; font-size:1.2rem; cursor:pointer;">&times;</button>
-                    <h3 style="margin-bottom:20px;">Edit User</h3>
-                    <form id="edit-user-form" style="display:flex; flex-direction:column; gap:15px;">
-                        <input type="hidden" id="eu-id">
-                        <div>
-                            <label style="font-size:0.8rem; color:var(--text-dim);">Username</label>
-                            <input type="text" id="eu-username" disabled style="width:100%; padding:10px; background:rgba(255,255,255,0.05); border:1px solid #444; color:var(--text-dim); border-radius: var(--radius-sm);">
-                        </div>
-                        <div>
-                            <label style="font-size:0.8rem; color:var(--text-dim);">Role</label>
-                             <select id="eu-role" style="width:100%; padding:10px; background:rgba(0,0,0,0.5); border:1px solid #444; color:white; border-radius: var(--radius-sm);">
-                                <option value="analyst">Analyst</option>
-                                <option value="editor">Editor</option>
-                                <option value="regional_admin">Regional Admin</option>
-                                <option value="super_admin">Super Admin</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label style="font-size:0.8rem; color:var(--text-dim);">New Password (Optional)</label>
-                            <input type="password" id="eu-password" placeholder="Leave blank to keep current" style="width:100%; padding:10px; background:rgba(255,255,255,0.1); border:1px solid #444; color:white; border-radius: var(--radius-sm);">
-                        </div>
-                        <button type="submit" class="btn-primary">Update User</button>
-                    </form>
-                 </div>
-            </div>
-        `;
-        document.body.insertAdjacentHTML('beforeend', modalHTML);
-
-        // Bind Modal Events
-        document.getElementById('close-modal').onclick = () => document.getElementById('admin-modal').style.display = 'none';
-        document.getElementById('close-upload').onclick = () => document.getElementById('upload-modal').style.display = 'none';
-        document.getElementById('close-login').onclick = () => document.getElementById('login-modal').style.display = 'none';
-        document.getElementById('close-user-modal').onclick = () => document.getElementById('user-modal').style.display = 'none';
-        document.getElementById('close-edit-user').onclick = () => document.getElementById('edit-user-modal').style.display = 'none';
 
         // Toggle Register (Existing Code...)
         let isRegisterMode = false;
@@ -636,6 +552,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const url = id ? `/api/projects/${id}` : '/api/projects';
 
             const formData = new FormData();
+            // Basic Fields
             formData.append('name', document.getElementById('p-name').value);
             formData.append('locations', document.getElementById('p-locations').value);
             formData.append('sector', document.getElementById('p-sector').value);
@@ -643,6 +560,13 @@ document.addEventListener('DOMContentLoaded', () => {
             formData.append('year', document.getElementById('p-year').value);
             formData.append('status', document.getElementById('p-status').value);
             formData.append('community', document.getElementById('p-locations').value.split(',')[0].trim());
+
+            // New Fields
+            formData.append('description', document.getElementById('p-description').value);
+            formData.append('project_cost', document.getElementById('p-cost').value);
+            formData.append('funding_source', document.getElementById('p-funding').value);
+            formData.append('beneficiary_count', document.getElementById('p-beneficiaries').value);
+            formData.append('contractor', document.getElementById('p-contractor').value);
 
             const imageFile = document.getElementById('p-image').files[0];
             if (imageFile) {
@@ -731,6 +655,13 @@ window.openModal = (mode, project = null) => {
         document.getElementById('p-year').value = project.year;
         document.getElementById('p-status').value = project.status;
 
+        // New Fields
+        document.getElementById('p-description').value = project.description || '';
+        document.getElementById('p-cost').value = project.project_cost || '';
+        document.getElementById('p-funding').value = project.funding_source || '';
+        document.getElementById('p-beneficiaries').value = project.beneficiary_count || '';
+        document.getElementById('p-contractor').value = project.contractor || '';
+
         // Image Preview in Edit
         const preview = document.getElementById('image-preview');
         const text = document.getElementById('file-text');
@@ -762,6 +693,49 @@ window.openModal = (mode, project = null) => {
 
 window.openUploadModal = () => {
     document.getElementById('upload-modal').style.display = 'flex';
+
+    // Drag & Drop Logic (Bind once)
+    const dropZone = document.getElementById('upload-drop-zone');
+    const fileInput = document.getElementById('u-file');
+    const fileNameDisplay = document.getElementById('file-name-display');
+
+    if (dropZone && !dropZone.dataset.bound) {
+        dropZone.dataset.bound = true;
+
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, (e) => { e.preventDefault(); e.stopPropagation(); }, false);
+        });
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.add('dragover'), false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.remove('dragover'), false);
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            fileInput.files = files;
+            updateFileName();
+        });
+
+        fileInput.addEventListener('change', updateFileName);
+
+        function updateFileName() {
+            if (fileInput.files.length > 0) {
+                fileNameDisplay.textContent = 'Selected: ' + fileInput.files[0].name;
+                dropZone.querySelector('.upload-text').style.display = 'none';
+                dropZone.querySelector('.upload-subtext').style.display = 'none';
+                dropZone.querySelector('.upload-icon').className = 'fas fa-file-excel upload-icon';
+                dropZone.querySelector('.upload-icon').style.color = 'var(--accent-gold)';
+            }
+        }
+
+        // Make entire zone clickable
+        dropZone.addEventListener('click', () => fileInput.click());
+    }
 };
 
 
@@ -789,7 +763,7 @@ window.openUserModal = async () => {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${currentUser.token}`
+                        'Authorization': `Bearer ${currentUser.token} `
                     },
                     body: JSON.stringify({ username, password, role })
                 });
@@ -815,7 +789,7 @@ let currentUsersList = [];
 window.fetchUsers = async () => {
     try {
         const res = await fetch('/api/users', {
-            headers: { 'Authorization': `Bearer ${currentUser.token}` }
+            headers: { 'Authorization': `Bearer ${currentUser.token} ` }
         });
         const data = await res.json();
         currentUsersList = data.users || [];
@@ -823,22 +797,35 @@ window.fetchUsers = async () => {
         const tbody = document.getElementById('user-tbody');
         if (currentUsersList.length > 0) {
             tbody.innerHTML = currentUsersList.map(u => `
-                <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
-                    <td style="padding:10px;">${u.username}</td>
-                    <td style="padding:10px;">${u.role}</td>
-                    <td style="padding:10px;"><span class="tag ${u.status === 'approved' ? 'completed' : (u.status === 'blocked' ? 'planned' : 'waiting')}">${u.status}</span></td>
-                    <td style="padding:10px;">
-                        ${u.role !== 'super_admin' ? `
-                            <button onclick="window.updateUserStatus(${u.id}, 'approved')" style="color:var(--success); background:none; border:none; cursor:pointer; margin-right:5px;" title="Approve"><i class="fas fa-check"></i></button>
-                            <button onclick="window.updateUserStatus(${u.id}, 'blocked')" style="color:var(--accent-red); background:none; border:none; cursor:pointer; margin-right:5px;" title="Block"><i class="fas fa-ban"></i></button>
-                            <button onclick="window.editUser(${u.id})" style="color:var(--accent-teal); background:none; border:none; cursor:pointer; margin-right:5px;" title="Edit"><i class="fas fa-pencil-alt"></i></button>
-                            <button onclick="window.deleteUser(${u.id})" style="color:var(--accent-red); background:none; border:none; cursor:pointer;" title="Delete"><i class="fas fa-trash"></i></button>
-                        ` : '<span style="color:var(--text-dim); font-size:0.8rem;">Super Admin</span>'}
+            < tr >
+                    <td>
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <div style="width:35px; height:35px; background:rgba(255,255,255,0.1); border-radius:50%; display:flex; align-items:center; justify-content:center; color:var(--accent-gold); font-size:0.9rem;">
+                                ${u.username.charAt(0).toUpperCase()}
+                            </div>
+                            <span style="font-weight:500;">${u.username}</span>
+                        </div>
                     </td>
-                </tr>
+                    <td><span class="role-badge ${u.role}">${u.role.replace('_', ' ')}</span></td>
+                    <td>
+                        <span style="display:inline-flex; align-items:center; gap:6px; color:${u.status === 'approved' ? 'var(--completed)' : (u.status === 'blocked' ? '#e74c3c' : '#f39c12')}; font-size:0.9rem;">
+                            <i class="fas fa-circle" style="font-size:0.5rem;"></i> ${u.status.toUpperCase()}
+                        </span>
+                    </td>
+                    <td style="text-align:right;">
+                        ${u.role !== 'super_admin' ? `
+                            <div style="display:flex; justify-content:flex-end; gap:8px;">
+                                <button onclick="window.updateUserStatus(${u.id}, 'approved')" style="width:32px; height:32px; border-radius:8px; background:rgba(46,204,113,0.1); color:var(--accent-green); border:1px solid rgba(46,204,113,0.2); cursor:pointer; transition:all 0.2s;" title="Approve"><i class="fas fa-check"></i></button>
+                                <button onclick="window.updateUserStatus(${u.id}, 'blocked')" style="width:32px; height:32px; border-radius:8px; background:rgba(231,76,60,0.1); color:#e74c3c; border:1px solid rgba(231,76,60,0.2); cursor:pointer; transition:all 0.2s;" title="Block"><i class="fas fa-ban"></i></button>
+                                <button onclick="window.editUser(${u.id})" style="width:32px; height:32px; border-radius:8px; background:rgba(26,188,156,0.1); color:var(--accent-teal); border:1px solid rgba(26,188,156,0.2); cursor:pointer; transition:all 0.2s;" title="Edit"><i class="fas fa-pencil-alt"></i></button>
+                                <button onclick="window.deleteUser(${u.id})" style="width:32px; height:32px; border-radius:8px; background:rgba(255,255,255,0.05); color:var(--text-dim); border:1px solid rgba(255,255,255,0.1); cursor:pointer; transition:all 0.2s;" title="Delete"><i class="fas fa-trash"></i></button>
+                            </div>
+                        ` : '<span style="color:var(--text-dim); font-size:0.85rem; font-style:italic;">Protected</span>'}
+                    </td>
+                </tr >
             `).join('');
         } else {
-            tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:20px; color:var(--text-dim);">No users found.</td></tr>`;
+            tbody.innerHTML = `< tr > <td colspan="4" style="text-align:center; padding:20px; color:var(--text-dim);">No users found.</td></tr > `;
         }
     } catch (err) {
         window.showToast('Failed to fetch users', 'error');
@@ -860,9 +847,9 @@ window.editUser = (id) => {
 window.deleteUser = async (id) => {
     if (!confirm('Are you sure you want to delete this user? This cannot be undone.')) return;
     try {
-        const res = await fetch(`/api/users/${id}`, {
+        const res = await fetch(`/ api / users / ${id} `, {
             method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${currentUser.token}` }
+            headers: { 'Authorization': `Bearer ${currentUser.token} ` }
         });
         if (res.ok) {
             window.showToast('User deleted', 'success');
@@ -875,7 +862,7 @@ window.deleteUser = async (id) => {
 
 window.updateUserStatus = async (id, status) => {
     try {
-        const res = await fetch(`/api/users/${id}/status`, {
+        const res = await fetch(`/ api / users / ${id}/status`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
@@ -893,12 +880,40 @@ window.updateUserStatus = async (id, status) => {
 };
 
 window.showToast = (message, type = 'info') => {
-    const toast = document.getElementById("toast");
-    if (!toast) return; // Should exist by now
-    toast.className = `toast show ${type}`;
-    toast.innerText = message;
-    setTimeout(() => { toast.className = toast.className.replace("show", ""); }, 3000);
-}
+    // Ensure container exists
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+
+    // Icons map
+    const icons = {
+        success: '<i class="fas fa-check-circle toast-icon"></i>',
+        error: '<i class="fas fa-exclamation-circle toast-icon"></i>',
+        info: '<i class="fas fa-info-circle toast-icon"></i>'
+    };
+
+    // Create Toast
+    const toast = document.createElement('div');
+    toast.className = `toast-notification ${type}`;
+    toast.innerHTML = `
+        ${icons[type] || icons.info}
+        <span style="flex:1;">${message}</span>
+        <button onclick="this.parentElement.remove()" style="background:none; border:none; color:var(--text-dim); cursor:pointer;"><i class="fas fa-times"></i></button>
+    `;
+
+    // Append
+    container.appendChild(toast);
+
+    // Auto remove
+    setTimeout(() => {
+        toast.classList.add('hiding');
+        toast.addEventListener('transitionend', () => toast.remove());
+    }, 4500);
+};
 
 window.bindFilePreview = () => {
     const fileInput = document.getElementById('p-image');

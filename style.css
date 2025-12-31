@@ -795,7 +795,337 @@ select.form-control {
     border-bottom: 1px solid var(--card-border);
 }
 
-.modal-header-styled h3 {
-    font-size: 1.8rem;
+/* User Management Premium Styles */
+.user-modal-content {
+    width: 95% !important;
+    max-width: 1000px !important;
+    padding: 40px !important;
+    background: rgba(13, 26, 16, 0.95) !important;
+    /* Darker, more solid background for contrast */
+    border: 1px solid var(--accent-gold);
+    box-shadow: 0 0 50px rgba(197, 160, 89, 0.15);
+}
+
+.user-mgmt-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 20px;
+}
+
+.user-mgmt-header h3 {
+    font-size: 2rem;
+    background: linear-gradient(135deg, #fff 0%, var(--accent-gold) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin: 0;
+}
+
+.user-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0 10px;
+    /* Space between rows */
+    margin-top: 20px;
+}
+
+.user-table thead th {
+    text-align: left;
+    padding: 15px 20px;
+    color: var(--accent-gold);
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    font-weight: 600;
+    border-bottom: 1px solid var(--card-border);
+}
+
+.user-table tbody tr {
+    background: rgba(255, 255, 255, 0.03);
+    transition: all 0.3s ease;
+}
+
+.user-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.08);
+    transform: scale(1.01);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+}
+
+.user-table td {
+    padding: 20px;
+    color: var(--text-main);
+    font-size: 1rem;
+    vertical-align: middle;
+}
+
+.user-table td:first-child {
+    border-top-left-radius: 10px;
+    border-bottom-left-radius: 10px;
+    font-weight: 600;
+}
+
+.user-table td:last-child {
+    border-top-right-radius: 10px;
+    border-bottom-right-radius: 10px;
+}
+
+/* User Role Badges */
+.role-badge {
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: 0.75rem;
     font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: inline-block;
+}
+
+.role-badge.super_admin {
+    background: rgba(155, 89, 182, 0.2);
+    color: #ce93d8;
+    border: 1px solid rgba(155, 89, 182, 0.3);
+}
+
+.role-badge.regional_admin {
+    background: rgba(52, 152, 219, 0.2);
+    color: #3498db;
+    border: 1px solid rgba(52, 152, 219, 0.3);
+}
+
+.role-badge.analyst {
+    background: rgba(26, 188, 156, 0.2);
+    color: #1abc9c;
+    border: 1px solid rgba(26, 188, 156, 0.3);
+}
+
+.role-badge.editor {
+    background: rgba(230, 126, 34, 0.2);
+    color: #e67e22;
+    border: 1px solid rgba(230, 126, 34, 0.3);
+}
+
+/* New User Form Container */
+#create-user-form-container {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%);
+    border: 1px solid var(--accent-teal);
+    padding: 25px !important;
+    margin-bottom: 30px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+#create-user-form-container h4 {
+    color: var(--accent-teal);
+    font-size: 1.2rem;
+    margin-bottom: 20px;
+}
+
+/* Bulk Upload Premium Styles */
+.upload-modal-content {
+    width: 90% !important;
+    max-width: 600px !important;
+    /* Wider but contained */
+    padding: 40px !important;
+    background: rgba(13, 26, 16, 0.95) !important;
+    border: 1px solid var(--accent-gold);
+    box-shadow: 0 0 50px rgba(197, 160, 89, 0.15);
+    text-align: center;
+}
+
+.upload-header {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 20px;
+    margin-bottom: 30px;
+}
+
+.upload-header h3 {
+    font-size: 2rem;
+    background: linear-gradient(135deg, #fff 0%, var(--accent-gold) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin: 0;
+}
+
+.upload-drop-zone {
+    border: 2px dashed rgba(255, 255, 255, 0.2);
+    border-radius: 20px;
+    padding: 50px;
+    background: rgba(255, 255, 255, 0.02);
+    transition: all 0.3s ease;
+    cursor: pointer;
+    margin-bottom: 25px;
+    position: relative;
+    overflow: hidden;
+}
+
+.upload-drop-zone:hover,
+.upload-drop-zone.dragover {
+    border-color: var(--accent-gold);
+    background: rgba(255, 255, 255, 0.05);
+    transform: scale(1.02);
+}
+
+.upload-icon {
+    font-size: 4rem;
+    color: var(--text-dim);
+    margin-bottom: 15px;
+    transition: color 0.3s ease;
+}
+
+.upload-drop-zone:hover .upload-icon {
+    color: var(--accent-gold);
+}
+
+.upload-text {
+    font-size: 1.1rem;
+    color: var(--text-main);
+    margin-bottom: 5px;
+}
+
+.upload-subtext {
+    font-size: 0.9rem;
+    color: var(--text-dim);
+}
+
+.upload-file-input {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.btn-upload-submit {
+    width: 100%;
+    padding: 15px;
+    font-size: 1.1rem;
+    background: linear-gradient(135deg, var(--accent-gold) 0%, #b8860b 100%);
+    border: none;
+    color: #000;
+    font-weight: 700;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.btn-upload-submit:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 20px rgba(212, 175, 55, 0.4);
+}
+
+/* --- TOAST NOTIFICATIONS --- */
+.toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: none;
+    /* Allow clicking through the container area */
+}
+
+.toast-notification {
+    background: rgba(13, 26, 16, 0.85);
+    /* Dark semi-transparent background */
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-left: 4px solid var(--accent-gold);
+    /* Default accent */
+    color: var(--text-main);
+    padding: 15px 20px;
+    border-radius: var(--radius-sm);
+    min-width: 300px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    font-size: 0.95rem;
+    pointer-events: auto;
+    /* Enable clicks on the toast itself */
+    opacity: 0;
+    transform: translateX(50px);
+    animation: slideIn 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards;
+    transition: all 0.3s ease;
+}
+
+.toast-notification.success {
+    border-left-color: var(--accent-green);
+    background: linear-gradient(to right, rgba(46, 204, 113, 0.1), rgba(13, 26, 16, 0.9));
+}
+
+.toast-notification.error {
+    border-left-color: #e74c3c;
+    background: linear-gradient(to right, rgba(231, 76, 60, 0.1), rgba(13, 26, 16, 0.9));
+}
+
+.toast-notification.info {
+    border-left-color: var(--accent-teal);
+    background: linear-gradient(to right, rgba(26, 188, 156, 0.1), rgba(13, 26, 16, 0.9));
+}
+
+.toast-notification.hiding {
+    opacity: 0;
+    transform: translateX(100%);
+}
+
+.toast-icon {
+    font-size: 1.2rem;
+}
+
+.toast-notification.success .toast-icon {
+    color: var(--accent-green);
+}
+
+.toast-notification.error .toast-icon {
+    color: #e74c3c;
+}
+
+.toast-notification.info .toast-icon {
+    color: var(--accent-teal);
+}
+
+@keyframes slideIn {
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* --- LOGIN BUTTON --- */
+.login-btn-floating {
+    background: linear-gradient(135deg, var(--accent-gold) 0%, #b8860b 100%);
+    color: #0d1a10;
+    padding: 10px 24px;
+    border-radius: 30px;
+    font-weight: 700;
+    font-size: 0.95rem;
+    border: none;
+    cursor: pointer;
+    box-shadow: 0 4px 15px rgba(197, 160, 89, 0.3);
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-left: auto;
+    /* Push to right if in flex container */
+}
+
+.login-btn-floating:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(197, 160, 89, 0.5);
+    background: linear-gradient(135deg, #fff 0%, var(--accent-gold) 100%);
+}
+
+.login-btn-floating i {
+    font-size: 1.1rem;
 }

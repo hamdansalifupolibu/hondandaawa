@@ -31,12 +31,30 @@ function initDb() {
             category TEXT, -- 'infra' or 'support'
             community TEXT, -- Derived from locations for simple grouping if needed
             image_url TEXT,
+            project_cost TEXT,
+            funding_source TEXT,
+            beneficiary_count INTEGER,
+            contractor TEXT,
+            description TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`);
 
         // Migration: Add image_url if it doesn't exist
-        db.run("ALTER TABLE projects ADD COLUMN image_url TEXT", (err) => {
-            // Ignore error if column already exists
+        db.run("ALTER TABLE projects ADD COLUMN image_url TEXT", (err) => { /* Ignore */ });
+
+        // Migration: Add new fields (Dec 2025)
+        const newCols = [
+            "ALTER TABLE projects ADD COLUMN project_cost TEXT",
+            "ALTER TABLE projects ADD COLUMN funding_source TEXT",
+            "ALTER TABLE projects ADD COLUMN beneficiary_count INTEGER",
+            "ALTER TABLE projects ADD COLUMN contractor TEXT",
+            "ALTER TABLE projects ADD COLUMN description TEXT"
+        ];
+
+        newCols.forEach(query => {
+            db.run(query, (err) => {
+                // Ignore error if column already exists
+            });
         });
 
         // Impact Metrics Table
