@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hon. Sualihu Dandaawa | MP Impact & Development Tracker</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+
+<body>
+    <div class="container">
+        <!-- Main Dashboard Wrapper -->
+        <main class="glass-panel main-dashboard">
+
+            <!-- Header Section -->
+            <header class="dashboard-header">
+                <div class="mp-profile">
+                    <div class="mp-image-container">
+                        <img src="Hon Suahlihu 1.png" alt="Hon. Sualihu Dandaawa" class="mp-photo">
+                    </div>
+                    <div class="mp-info">
+                        <h1 class="text-gradient">Hon. Sualihu Dandaawa</h1>
+                        <p class="subtitle">Member of Parliament — Karaga Constituency</p>
+                        <p class="region"><i class="fas fa-location-dot"></i> Northern Region, Ghana</p>
+                    </div>
+                </div>
+
+                <div class="header-stats-grid">
+                    <div class="stat-card accent">
+                        <span class="stat-value" id="stat-total">52</span>
+                        <span class="stat-label">Total Projects</span>
+                        <i class="fas fa-folder-open icon-bg"></i>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value" id="stat-completed">38</span>
+                        <span class="stat-label">Completed</span>
+                        <i class="fas fa-circle-check icon-bg"></i>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value" id="stat-ongoing">14</span>
+                        <span class="stat-label">Ongoing</span>
+                        <i class="fas fa-clock icon-bg"></i>
+                    </div>
+                    <div class="stat-card" id="kpi-scholarships-card">
+                        <span class="stat-value" id="stat-scholarships">0</span>
+                        <span class="stat-label">Scholarships <i class="fas fa-pencil-alt edit-kpi-btn"
+                                id="edit-scholarships-btn"
+                                style="display:none; cursor:pointer; font-size:0.8rem; margin-left:5px;"></i></span>
+                        <i class="fas fa-graduation-cap icon-bg"></i>
+                    </div>
+                    <div class="stat-card gold">
+                        <span class="stat-value" id="stat-impact">50K+</span>
+                        <span class="stat-label">Estimated Beneficiaries</span>
+                        <i class="fas fa-users icon-bg"></i>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Toolbar: Time Slicer can go here or integrated -->
+            <div class="toolbar-container"
+                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <div class="time-slicer-wrapper">
+                    <select id="time-slicer" class="glass-input">
+                        <option value="all">All Years</option>
+                        <option value="2029-2032">2029 – 2032</option>
+                        <option value="2025-2028">2025 – 2028</option>
+                        <option value="2021-2024">2021 – 2024</option>
+                        <option value="2017-2020">2017 – 2020</option>
+                        <option value="2013-2016">2013 – 2016</option>
+                        <option value="2009-2012">2009 – 2012</option>
+                        <option value="2005-2008">2005 – 2008</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Navigation Tabs -->
+            <nav class="sector-nav">
+                <button class="tab-btn active" data-sector="education"><i class="fas fa-graduation-cap"></i>
+                    Education</button>
+                <button class="tab-btn" data-sector="health"><i class="fas fa-hospital"></i> Health</button>
+                <button class="tab-btn" data-sector="roads"><i class="fas fa-road"></i> Roads & Transport</button>
+                <button class="tab-btn" data-sector="water"><i class="fas fa-faucet-dotted"></i> Water &
+                    Sanitation</button>
+                <button class="tab-btn" data-sector="ict"><i class="fas fa-computer"></i> ICT</button>
+                <button class="tab-btn" data-sector="social"><i class="fas fa-hand-holding-heart"></i> Social
+                    Protection</button>
+                <button class="tab-btn" data-sector="agriculture"><i class="fas fa-seedling"></i> Agriculture</button>
+                <button class="tab-btn" data-sector="youth"><i class="fas fa-child-reaching"></i> Youth</button>
+                <button class="tab-btn" data-sector="sports"><i class="fas fa-futbol"></i> Sports</button>
+            </nav>
+
+            <!-- Content Area -->
+            <div class="dashboard-content">
+                <!-- Main Content Column -->
+                <div class="main-column">
+                    <!-- Infrastructure Section -->
+                    <section class="content-section" id="infrastructure-section">
+                        <div class="section-card">
+                            <div class="section-card-header">
+                                <h3 id="infra-title"><i class="fas fa-building"></i> Education Infrastructure</h3>
+                                <span class="options-btn"><i class="fas fa-ellipsis-h"></i></span>
+                            </div>
+                            <div class="project-grid" id="infra-grid">
+                                <!-- Populated by JS -->
+                            </div>
+                            <div class="section-footer">
+                                <a href="#" class="view-all-link">View All <i class="fas fa-chevron-right"></i></a>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Support Section -->
+                    <section class="content-section" id="support-section">
+                        <div class="section-card">
+                            <div class="section-card-header"
+                                style="background: linear-gradient(to right, rgba(197, 160, 89, 0.1), transparent);">
+                                <h3 id="support-title" style="color: var(--accent-gold);"><i
+                                        class="fas fa-book-reader"></i> Learning Support</h3>
+                                <span class="options-btn"><i class="fas fa-ellipsis-h"></i></span>
+                            </div>
+                            <div class="project-grid" id="support-grid">
+                                <!-- Populated by JS -->
+                            </div>
+                            <div class="section-footer">
+                                <a href="#" class="view-all-link" style="color: var(--accent-gold);">View All <i
+                                        class="fas fa-chevron-right"></i></a>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Community Breakdown -->
+                    <section class="community-section">
+                        <div class="community-header">
+                            <h3><i class="fas fa-map-location-dot"></i> Community-Level Breakdown</h3>
+                        </div>
+                        <div class="glass-panel" style="border-radius: var(--radius-md); padding: 0; overflow: hidden;">
+                            <table class="comm-table">
+                                <thead>
+                                    <tr>
+                                        <th>Community</th>
+                                        <th>Completed</th>
+                                        <th>Ongoing</th>
+                                        <th>Update</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="community-tbody">
+                                    <!-- Populated by JS -->
+                                </tbody>
+                            </table>
+                            <div style="padding: 12px; text-align: center; border-top: 1px solid var(--card-border);">
+                                <a href="#"
+                                    style="color: var(--text-dim); font-size: 0.85rem; text-decoration: none;">See All
+                                    Communities <i class="fas fa-chevron-right"></i></a>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- Sidebar Column -->
+                <aside class="sidebar">
+                    <!-- Impact Widget 1 -->
+                    <div class="summary-card accent" id="impact-widget-1">
+                        <h4><i class="fas fa-chart-line"></i> Impact Summary</h4>
+                        <div class="impact-stats" id="widget-metrics">
+                            <!-- Populated by JS -->
+                        </div>
+                        <div class="completion-widget">
+                            <div class="progress-info">
+                                <span id="comp-rate-val">85%</span>
+                                <span>Completion Rate</span>
+                            </div>
+                            <div class="progress-track">
+                                <div class="progress-fill" id="comp-rate-bar" style="width: 85%;"></div>
+                            </div>
+                            <div class="legend-grid">
+                                <div class="leg-item"><span class="dot comp"></span> Completed</div>
+                                <div class="leg-item"><span class="dot ong"></span> Ongoing</div>
+                                <div class="leg-item"><span class="dot plan"></span> Planned</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Photo Widget / Secondary Impact -->
+                    <div class="summary-card" style="padding: 0; overflow: hidden;">
+                        <div style="height: 120px; overflow: hidden; position: relative;">
+                            <img src="Hon Sualihu 2.png" alt="MP in Action"
+                                style="width: 100%; height: 100%; object-fit: cover;">
+                            <div
+                                style="position: absolute; bottom: 10px; left: 10px; font-size: 0.75rem; background: rgba(0,0,0,0.5); padding: 2px 8px; border-radius: 4px;">
+                                Photo: Project Inspection</div>
+                        </div>
+                        <div style="padding: var(--spacing-md);">
+                            <div class="impact-row" style="margin-bottom: 0;">
+                                <span class="impact-val" style="color: var(--accent-gold);">15K+</span>
+                                <span class="impact-label">Total Beneficiaries (YTD)</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Footer Info -->
+                    <div class="glass-panel" style="padding: 15px; font-size: 0.8rem; color: var(--text-dim);">
+                        <p style="margin-bottom: 8px;"><i class="fas fa-database"></i> Data Sources: MP Office | Karaga
+                            District Assembly</p>
+                        <p><i class="fas fa-calendar-check"></i> Last Updated: April 2024</p>
+                        <div
+                            style="margin-top: 15px; display: flex; justify-content: space-between; align-items: center;">
+                            <button id="auth-btn" class="btn-primary" style="padding: 6px 12px; font-size: 0.75rem;"><i
+                                    class="fas fa-user-circle"></i> Login</button>
+                        </div>
+                    </div>
+                </aside>
+            </div>
+        </main>
+    </div>
+    <script src="main.js"></script>
+</body>
+
+</html>
