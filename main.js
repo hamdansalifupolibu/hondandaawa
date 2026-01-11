@@ -46,30 +46,42 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- DASHBOARD STATS ---
+    const formatCurrency = (val) => {
+        if (val >= 1000000) return `GHS ${(val / 1000000).toFixed(1)}M`;
+        if (val >= 1000) return `GHS ${(val / 1000).toFixed(1)}K`;
+        return `GHS ${val}`;
+    };
+
     window.fetchDashboardStats = async () => {
         try {
             const res = await fetch('/api/metrics');
             const data = await res.json();
 
+            // Counts
             if (data.counts) {
                 document.getElementById('stat-total').innerText = data.counts.total;
                 document.getElementById('stat-completed').innerText = data.counts.completed;
                 document.getElementById('stat-ongoing').innerText = data.counts.ongoing;
             }
 
+            // Metrics (Label-Value pairs)
             if (data.metrics) {
-                // Scholarships
-                const scholVal = data.metrics['Scholarships'] || data.metrics['scholarships'] || '0';
-                document.getElementById('stat-scholarships').innerHTML = `${scholVal} <i class="fas fa-pencil-alt edit-kpi-btn" id="edit-scholarships-btn" style="display:none; cursor:pointer; font-size:0.8rem; margin-left:5px;"></i>`;
-
-                // Beneficiaries
-                const benVal = data.metrics['Beneficiaries'] || data.metrics['beneficiaries'] || '50K+';
-                document.getElementById('stat-impact').innerHTML = `${benVal} <i class="fas fa-pencil-alt edit-kpi-btn" id="edit-beneficiaries-btn" style="display:none; cursor:pointer; font-size:0.8rem; margin-left:5px;"></i>`;
+                // Scholarship Count
+                if (data.metrics['Scholarships']) {
+                    document.getElementById('stat-scholarships').innerText = data.metrics['Scholarships'];
+                }
+                // Estimated Beneficiaries
+                if (data.metrics['Estimated Beneficiaries']) {
+                    document.getElementById('stat-impact').innerText = data.metrics['Estimated Beneficiaries'];
+                }
+                // Total Investment
+                if (data.metrics['Total Investment']) {
+                    document.getElementById('stat-investment').innerText = formatCurrency(data.metrics['Total Investment']);
+                }
             }
-            // Re-bind edit buttons if visible
-            updateAdminUI();
-        } catch (err) { console.error('Stats error:', err); }
+        } catch (err) { console.error('Stats Error:', err); }
     };
+
 
     // --- INIT ---
     try {
@@ -278,8 +290,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const projectsRes = await fetch(`/api/projects${queryParams}`);
             const projectsData = await projectsRes.json();
 
-            if (reset) currentProjects = projectsData.projects;
-            else currentProjects = [...currentProjects, ...projectsData.projects];
+            if (!projectsRes.ok) throw new Error(projectsData.error || 'Failed to fetch projects');
+
+            if (reset) currentProjects = projectsData.projects || [];
+            else currentProjects = [...currentProjects, ...(projectsData.projects || [])];
 
             const [metricsRes, ratesRes] = await Promise.all([
                 fetch(`/api/impact-metrics?sector=${sectorKey}`),
@@ -339,10 +353,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     roads: { infra: "Roads & Transport", support: "Transport Support" },
                     water: { infra: "Water & Sanitation", support: "Sanitation Support" },
                     ict: { infra: "ICT Infrastructure", support: "Digital Support" },
-                    social: { infra: "Social Protection", support: "Charity & Welfare" },
+                    jobs: { infra: "Jobs & Employment", support: "Skills & Welfare" },
                     agriculture: { infra: "Agri-Infrastructure", support: "Farming Inputs" },
-                    youth: { infra: "Youth Centers", support: "Skill Training" },
-                    sports: { infra: "Sports Complexes", support: "Team Support" }
+                    youth_sports: { infra: "Youth & Sports Complexes", support: "Youth & Team Support" },
+                    scholarship: { infra: "Scholarship Facilities", support: "Scholarship Beneficiaries" }
                 };
                 const currentTitles = titles[sectorKey] || titles.education;
 
@@ -362,7 +376,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         } catch (error) {
             console.error('Error fetching data:', error);
-            showToast('Failed to load sector data.', 'error');
+            showToast(error.message || 'Failed to load sector data.', 'error');
         }
     }
 
@@ -582,6 +596,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (res.ok) {
                     document.getElementById('admin-modal').style.display = 'none';
                     fetchSectorData(currentSector, 1, true);
+                    fetchDashboardStats(); // Refresh metrics (Total Investment) immediately
                     showToast('Project saved', 'success');
                 } else {
                     const data = await res.json();
@@ -613,6 +628,37 @@ document.addEventListener('DOMContentLoaded', () => {
                 fetchSectorData(currentSector, 1, true);
             } catch (err) { showToast('Upload failed', 'error'); }
         };
+
+        // --- SCHOLARSHIPS EVENTS ---
+        const scholCard = document.getElementById('kpi-scholarships-card');
+        if (scholCard) {
+            scholCard.style.cursor = 'pointer';
+            scholCard.addEventListener('click', (e) => {
+                if (e.target.closest('.edit-kpi-btn')) return;
+                window.openScholarshipModal();
+            });
+        }
+
+        const closeScholBtn = document.getElementById('close-scholarship-modal');
+        if (closeScholBtn) {
+            closeScholBtn.onclick = () => document.getElementById('scholarship-modal').style.display = 'none';
+        }
+
+        const addScholBtn = document.getElementById('add-scholarship-btn');
+        if (addScholBtn) {
+            addScholBtn.onclick = () => {
+                const c = document.getElementById('add-scholarship-form-container');
+                c.style.display = (c.style.display === 'none') ? 'block' : 'none';
+            };
+        }
+
+        const addScholForm = document.getElementById('add-scholarship-form');
+        if (addScholForm) {
+            addScholForm.onsubmit = (e) => {
+                e.preventDefault();
+                window.saveScholarship();
+            };
+        }
     }
 });
 
@@ -633,7 +679,11 @@ window.deleteProject = async (id) => {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${currentUser.token}` }
         });
-        if (res.ok) window.location.reload();
+        if (res.ok) {
+            fetchSectorData(currentSector, 1, true);
+            fetchDashboardStats();
+            showToast('Project deleted', 'info');
+        }
     } catch (err) { console.error(err); }
 };
 
@@ -959,6 +1009,92 @@ window.bindFilePreview = () => {
         fileInput.files = files;
         fileInput.dispatchEvent(new Event('change'));
     };
+};
+
+// --- SCHOLARSHIPS HELPER FUNCTIONS ---
+window.openScholarshipModal = async () => {
+    document.getElementById('scholarship-modal').style.display = 'flex';
+    document.getElementById('add-scholarship-form-container').style.display = 'none';
+    if (!currentUser || !['super_admin', 'regional_admin', 'editor'].includes(currentUser.role)) {
+        document.getElementById('add-scholarship-btn').style.display = 'none';
+    } else {
+        document.getElementById('add-scholarship-btn').style.display = 'block';
+    }
+    await window.fetchScholarships();
+};
+
+window.fetchScholarships = async () => {
+    try {
+        const res = await fetch('/api/scholarships');
+        const data = await res.json();
+        const tbody = document.getElementById('scholarship-tbody');
+        if (tbody) {
+            tbody.innerHTML = data.scholarships.map(s => `
+                <tr>
+                    <td>${s.beneficiary_name}</td>
+                    <td>${s.institution}</td>
+                    <td>${s.amount || '-'}</td>
+                    <td><span class="role-badge ${s.status === 'Paid' ? 'super_admin' : 'editor'}">${s.status}</span></td>
+                    <td>${s.year}</td>
+                    <td style="text-align:right;">
+                         ${currentUser && ['super_admin', 'regional_admin', 'editor'].includes(currentUser.role) ?
+                    `<button onclick="window.deleteScholarship(${s.id})" style="color:#ff6b6b; background:none; border:none; cursor:pointer;"><i class="fas fa-trash"></i></button>` : ''}
+                    </td>
+                </tr>
+             `).join('');
+        }
+        const statEl = document.getElementById('stat-scholarships');
+        if (statEl) statEl.innerText = data.scholarships.length;
+    } catch (err) { console.error(err); }
+};
+
+window.saveScholarship = async () => {
+    if (!currentUser) return showToast('Login required', 'error');
+
+    const body = {
+        beneficiary_name: document.getElementById('s-name').value,
+        institution: document.getElementById('s-institution').value,
+        amount: document.getElementById('s-amount').value,
+        year: document.getElementById('s-year').value,
+        status: document.getElementById('s-status').value,
+        category: document.getElementById('s-category').value
+    };
+
+    try {
+        const res = await fetch('/api/scholarships', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${currentUser.token}`
+            },
+            body: JSON.stringify(body)
+        });
+
+        if (res.ok) {
+            showToast('Scholarship added', 'success');
+            document.getElementById('add-scholarship-form').reset();
+            document.getElementById('add-scholarship-form-container').style.display = 'none';
+            await window.fetchScholarships();
+            window.fetchDashboardStats();
+        } else {
+            const d = await res.json();
+            showToast(d.error || 'Failed', 'error');
+        }
+    } catch (err) { showToast('Error saving', 'error'); }
+};
+
+window.deleteScholarship = async (id) => {
+    if (!confirm('Delete this record?')) return;
+    try {
+        const res = await fetch(`/api/scholarships/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${currentUser.token}` }
+        });
+        if (res.ok) {
+            window.fetchScholarships();
+            window.fetchDashboardStats();
+        }
+    } catch (err) { console.error(err); }
 };
 
 

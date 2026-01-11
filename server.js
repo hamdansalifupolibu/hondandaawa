@@ -119,6 +119,15 @@ cron.schedule('0 0 * * *', () => {
 
 // --- API ROUTES ---
 
+// Health Check
+app.get('/api/health', (req, res) => {
+    db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='projects'", (err, row) => {
+        if (err) return res.status(500).json({ status: 'error', message: 'Database connection failed: ' + err.message });
+        if (!row) return res.status(500).json({ status: 'error', message: 'Database connected but tables missing. Upload mp_tracker.db!' });
+        res.json({ status: 'ok', message: 'System healthy' });
+    });
+});
+
 // Projects (Cached)
 app.get('/api/projects', (req, res) => {
     const cacheKey = JSON.stringify(req.query);
@@ -182,10 +191,16 @@ app.get('/api/projects', (req, res) => {
 
 // Create Project
 app.post('/api/projects', authMiddleware, verifyEditor, upload.single('image'), (req, res) => {
-    const { name, locations, sector, year, status, category, community, project_cost, funding_source, beneficiary_count, contractor, description } = req.body;
+    let { name, locations, sector, year, status, category, community, project_cost, funding_source, beneficiary_count, contractor, description } = req.body;
     const image_url = req.file ? `/uploads/projects/${req.file.filename}` : null;
 
     if (!name || !sector) return res.status(400).json({ error: 'Name and Sector are required' });
+
+    // Sanitize Cost
+    if (project_cost) {
+        // Remove everything except numbers and decimals
+        project_cost = String(project_cost).replace(/[^0-9.]/g, '');
+    }
 
     const stmt = `INSERT INTO projects (name, locations, sector, year, status, category, community, image_url, project_cost, funding_source, beneficiary_count, contractor, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
     db.run(stmt, [name, locations, sector, year, status, category, community, image_url, project_cost, funding_source, beneficiary_count, contractor, description], function (err) {
@@ -202,7 +217,12 @@ app.post('/api/projects', authMiddleware, verifyEditor, upload.single('image'), 
 // Update Project
 app.put('/api/projects/:id', authMiddleware, verifyEditor, upload.single('image'), (req, res) => {
     const { id } = req.params;
-    const { name, locations, sector, year, status, category, community, project_cost, funding_source, beneficiary_count, contractor, description } = req.body;
+    let { name, locations, sector, year, status, category, community, project_cost, funding_source, beneficiary_count, contractor, description } = req.body;
+
+    // Sanitize Cost
+    if (project_cost) {
+        project_cost = String(project_cost).replace(/[^0-9.]/g, '');
+    }
 
     let sql = `UPDATE projects SET name=?, locations=?, sector=?, year=?, status=?, category=?, community=?, project_cost=?, funding_source=?, beneficiary_count=?, contractor=?, description=?`;
     let params = [name, locations, sector, year, status, category, community, project_cost, funding_source, beneficiary_count, contractor, description];
@@ -380,9 +400,32 @@ app.get('/api/metrics', (req, res) => {
             const metrics = {};
             rows.forEach(r => metrics[r.label] = r.val);
 
-            res.json({
-                counts,
-                metrics // e.g. { scholarships: '500', beneficiaries: '50K+' }
+            // Dynamic Scholarship Count & Total Investment
+            db.get("SELECT COUNT(*) as total, SUM(amount) as cost FROM scholarships", [], (err, scholRow) => {
+                const legacyScholCount = (scholRow && scholRow.total) ? scholRow.total : 0;
+                const scholCost = (scholRow && scholRow.cost) ? parseFloat(scholRow.cost) : 0;
+
+                // Also count projects that are categorized as 'scholarship'
+                db.get("SELECT COUNT(*) as total FROM projects WHERE sector = 'scholarship' AND status != 'archived'", [], (err, projScholRow) => {
+                    const projScholCount = (projScholRow && projScholRow.total) ? projScholRow.total : 0;
+
+                    // Unified Count
+                    metrics['Scholarships'] = (legacyScholCount + projScholCount).toString();
+
+                    // Calculate Total Investment (Projects + Scholarships)
+                    // Sanitize project_cost by removing commas and 'GHS' before casting to number
+                    db.get("SELECT SUM(CAST(REPLACE(REPLACE(project_cost, ',', ''), 'GHS', '') AS REAL)) as total_project_cost FROM projects WHERE status != 'archived'", [], (err, projRow) => {
+                        const projCost = (projRow && projRow.total_project_cost) ? parseFloat(projRow.total_project_cost) : 0;
+                        const totalInvestment = projCost + scholCost;
+
+                        metrics['Total Investment'] = totalInvestment;
+
+                        res.json({
+                            counts,
+                            metrics
+                        });
+                    });
+                });
             });
         });
     });
@@ -413,34 +456,53 @@ app.put('/api/metrics', authMiddleware, verifySuperAdmin, (req, res) => {
     });
 });
 
-// Scholarships KPI
-app.get('/api/kpi/scholarships', (req, res) => {
-    db.get("SELECT val FROM impact_metrics WHERE label = 'Scholarships'", [], (err, row) => {
+// Scholarships KPI (Now Dynamic)
+app.get('/api/scholarships', (req, res) => {
+    const { year } = req.query;
+    let query = "SELECT * FROM scholarships ORDER BY created_at DESC";
+    const params = [];
+    if (year) {
+        query = "SELECT * FROM scholarships WHERE year = ? ORDER BY created_at DESC";
+        params.push(year);
+    }
+    db.all(query, params, (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.json({ value: row ? row.val : '0' });
+        res.json({ scholarships: rows });
     });
 });
 
-app.put('/api/kpi/scholarships', authMiddleware, verifyEditor, (req, res) => {
-    const { value } = req.body;
-    if (!value) return res.status(400).json({ error: 'Value is required' });
+app.post('/api/scholarships', authMiddleware, verifyEditor, (req, res) => {
+    const { beneficiary_name, institution, amount, year, status, category } = req.body;
+    if (!beneficiary_name || !institution) return res.status(400).json({ error: 'Name and Institution required' });
 
-    db.get("SELECT id FROM impact_metrics WHERE label = 'Scholarships'", [], (err, row) => {
+    const stmt = db.prepare("INSERT INTO scholarships (beneficiary_name, institution, amount, year, status, category) VALUES (?, ?, ?, ?, ?, ?)");
+    stmt.run(beneficiary_name, institution, amount, year, status || 'Pending', category || 'Tertiary', function (err) {
         if (err) return res.status(500).json({ error: err.message });
+        logAudit(req, 'CREATE_SCHOLARSHIP', { id: this.lastID, beneficiary_name });
+        res.status(201).json({ id: this.lastID, message: 'Scholarship added' });
+    });
+    stmt.finalize();
+});
 
-        if (row) {
-            db.run("UPDATE impact_metrics SET val = ? WHERE label = 'Scholarships'", [value], (err) => {
-                if (err) return res.status(500).json({ error: err.message });
-                logAudit(req, 'UPDATE_KPI', { label: 'Scholarships', value });
-                res.json({ message: 'Updated successfully' });
-            });
-        } else {
-            db.run("INSERT INTO impact_metrics (sector, label, val) VALUES ('global', 'Scholarships', ?)", [value], (err) => {
-                if (err) return res.status(500).json({ error: err.message });
-                logAudit(req, 'CREATE_KPI', { label: 'Scholarships', value });
-                res.json({ message: 'Created and updated successfully' });
-            });
-        }
+app.put('/api/scholarships/:id', authMiddleware, verifyEditor, (req, res) => {
+    const { id } = req.params;
+    const { beneficiary_name, institution, amount, year, status, category } = req.body;
+
+    const stmt = db.prepare("UPDATE scholarships SET beneficiary_name=?, institution=?, amount=?, year=?, status=?, category=? WHERE id=?");
+    stmt.run(beneficiary_name, institution, amount, year, status, category, id, function (err) {
+        if (err) return res.status(500).json({ error: err.message });
+        logAudit(req, 'UPDATE_SCHOLARSHIP', { id });
+        res.json({ message: 'Scholarship updated' });
+    });
+    stmt.finalize();
+});
+
+app.delete('/api/scholarships/:id', authMiddleware, verifyEditor, (req, res) => {
+    const { id } = req.params;
+    db.run("DELETE FROM scholarships WHERE id = ?", [id], function (err) {
+        if (err) return res.status(500).json({ error: err.message });
+        logAudit(req, 'DELETE_SCHOLARSHIP', { id });
+        res.json({ message: 'Scholarship deleted' });
     });
 });
 
@@ -449,9 +511,35 @@ app.get('/api/impact-metrics', (req, res) => {
     let query = 'SELECT * FROM impact_metrics';
     const params = [];
     if (sector) { query += ' WHERE sector = ?'; params.push(sector); }
-    db.all(query, params, (err, rows) => {
+
+    db.all(query, params, (err, metricsRows) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.json({ metrics: rows });
+
+        // Calculate Dynamic Sector Investment
+        let investQuery = "SELECT SUM(CAST(REPLACE(REPLACE(project_cost, ',', ''), 'GHS', '') AS REAL)) as total FROM projects WHERE status != 'archived'";
+        let investParams = [];
+
+        if (sector) {
+            investQuery += " AND sector = ?";
+            investParams.push(sector);
+        }
+
+        db.get(investQuery, investParams, (err, row) => {
+            const total = (row && row.total) ? row.total : 0;
+
+            // Format Currency
+            let formattedTotal = `GHS ${total.toLocaleString()}`;
+            if (total >= 1000000) formattedTotal = `GHS ${(total / 1000000).toFixed(1)}M`;
+            else if (total >= 1000) formattedTotal = `GHS ${(total / 1000).toFixed(1)}K`;
+
+            // Append to metrics
+            metricsRows.push({
+                label: 'Sector Investment',
+                val: formattedTotal
+            });
+
+            res.json({ metrics: metricsRows });
+        });
     });
 });
 

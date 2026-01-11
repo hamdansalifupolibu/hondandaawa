@@ -16,7 +16,7 @@
 
             <!-- Header Section -->
             <header class="dashboard-header">
-                <button id="auth-btn" class="login-btn-floating" style="margin-left: 0; margin-right: auto;">
+                <button id="auth-btn" class="login-btn-floating">
                     <i class="fas fa-user-circle"></i> Login
                 </button>
 
@@ -55,6 +55,11 @@
                                 id="edit-scholarships-btn"
                                 style="display:none; cursor:pointer; font-size:0.8rem; margin-left:5px;"></i></span>
                         <i class="fas fa-graduation-cap icon-bg"></i>
+                    </div>
+                    <div class="stat-card gold">
+                        <span class="stat-value" id="stat-investment">GHS 0</span>
+                        <span class="stat-label">Total Investment</span>
+                        <i class="fas fa-coins icon-bg"></i>
                     </div>
                     <div class="stat-card gold">
                         <span class="stat-value" id="stat-impact">50K+</span>
@@ -118,11 +123,12 @@
                 <button class="tab-btn" data-sector="water"><i class="fas fa-faucet-dotted"></i> Water &
                     Sanitation</button>
                 <button class="tab-btn" data-sector="ict"><i class="fas fa-computer"></i> ICT</button>
-                <button class="tab-btn" data-sector="social"><i class="fas fa-hand-holding-heart"></i> Social
-                    Protection</button>
+                <button class="tab-btn" data-sector="jobs"><i class="fas fa-briefcase"></i> Jobs &
+                    Employment</button>
                 <button class="tab-btn" data-sector="agriculture"><i class="fas fa-seedling"></i> Agriculture</button>
-                <button class="tab-btn" data-sector="youth"><i class="fas fa-child-reaching"></i> Youth</button>
-                <button class="tab-btn" data-sector="sports"><i class="fas fa-futbol"></i> Sports</button>
+                <button class="tab-btn" data-sector="youth_sports"><i class="fas fa-users"></i> Youth & Sports</button>
+                <button class="tab-btn" data-sector="scholarship"><i class="fas fa-user-graduate"></i>
+                    Scholarships</button>
             </nav>
 
             <!-- Content Area -->
@@ -218,12 +224,12 @@
 
                     <!-- Photo Widget / Secondary Impact -->
                     <div class="summary-card" style="padding: 0; overflow: hidden;">
-                        <div style="height: 120px; overflow: hidden; position: relative;">
-                            <img src="Hon Sualihu 2.png" alt="MP in Action"
-                                style="width: 100%; height: 100%; object-fit: cover;">
+                        <div style="height: 250px; overflow: hidden; position: relative;">
+                            <img src="Dandaawa.png" alt="Hon. Sualihu Dandaawa"
+                                style="width: 100%; height: 100%; object-fit: cover; object-position: top center;">
                             <div
-                                style="position: absolute; bottom: 10px; left: 10px; font-size: 0.75rem; background: rgba(0,0,0,0.5); padding: 2px 8px; border-radius: 4px;">
-                                Photo: Project Inspection</div>
+                                style="position: absolute; bottom: 10px; left: 10px; font-size: 0.75rem; background: rgba(0,0,0,0.6); padding: 4px 10px; border-radius: 4px; backdrop-filter: blur(4px);">
+                                Photo: Hon. Sualihu Dandaawa</div>
                         </div>
                         <div style="padding: var(--spacing-md);">
                             <div class="impact-row" style="margin-bottom: 0;">
@@ -280,10 +286,10 @@
                         <option value="roads">Roads & Transport</option>
                         <option value="water">Water & Sanitation</option>
                         <option value="ict">ICT</option>
-                        <option value="social">Social Protection</option>
+                        <option value="jobs">Jobs & Employment</option>
                         <option value="agriculture">Agriculture</option>
-                        <option value="youth">Youth Development</option>
-                        <option value="sports">Sports</option>
+                        <option value="youth_sports">Youth & Sports</option>
+                        <option value="scholarship">Scholarship Scheme</option>
                     </select>
                 </div>
 
@@ -445,6 +451,81 @@
             </form>
             <p style="margin-top:15px; font-size:0.9rem;"><a href="#" id="toggle-auth"
                     style="color:var(--accent-gold);">Need an account? Register</a></p>
+        </div>
+    </div>
+
+    <!-- Scholarships Modal -->
+    <div id="scholarship-modal"
+        style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); z-index:1000; justify-content:center; align-items:center;">
+        <div class="glass-panel user-modal-content" style="position:relative; max-height:85vh; overflow-y:auto;">
+            <button id="close-scholarship-modal"
+                style="position:absolute; top:20px; right:20px; background:none; border:none; color:white; font-size:1.5rem; cursor:pointer; opacity:0.7;">&times;</button>
+
+            <div class="user-mgmt-header">
+                <h3>Scholarships Tracker</h3>
+                <button id="add-scholarship-btn" class="btn-primary" style="padding:10px 20px; font-size:0.95rem;"><i
+                        class="fas fa-plus-circle"></i> Add New</button>
+            </div>
+
+            <!-- Add Form (Hidden by default) -->
+            <div id="add-scholarship-form-container"
+                style="display:none; background:rgba(255,255,255,0.02); padding:20px; border-radius:15px; margin-bottom:20px;">
+                <form id="add-scholarship-form" class="modern-form">
+                    <input type="hidden" id="s-id">
+                    <div class="form-group">
+                        <label class="form-label">Beneficiary Name</label>
+                        <input type="text" id="s-name" required class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Institution</label>
+                        <input type="text" id="s-institution" required class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Amount (GHS)</label>
+                        <input type="number" id="s-amount" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Year</label>
+                        <select id="s-year" class="form-control">
+                            <option value="2023">2023</option>
+                            <option value="2024">2024</option>
+                            <option value="2025" selected>2025</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Status</label>
+                        <select id="s-status" class="form-control">
+                            <option value="Pending">Pending</option>
+                            <option value="Paid">Paid</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Category</label>
+                        <select id="s-category" class="form-control">
+                            <option value="Tertiary">Tertiary</option>
+                            <option value="SHS">SHS</option>
+                            <option value="TVET">TVET</option>
+                        </select>
+                    </div>
+                    <div class="full-width">
+                        <button type="submit" class="btn-primary" style="width:100%;">Save Scholarship</button>
+                    </div>
+                </form>
+            </div>
+
+            <table class="user-table">
+                <thead>
+                    <tr>
+                        <th>Beneficiary</th>
+                        <th>Institution</th>
+                        <th>Amount</th>
+                        <th>Status</th>
+                        <th>Year</th>
+                        <th style="text-align:right;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="scholarship-tbody"></tbody>
+            </table>
         </div>
     </div>
 

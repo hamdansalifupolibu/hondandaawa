@@ -108,13 +108,13 @@ const dashboardData = {
         ],
         rate: 58
     },
-    social: {
-        infraTitle: "Social Protection",
+    jobs: {
+        infraTitle: "Jobs & Employment",
         infraProjects: [
             { name: "Disabled Center", locations: "Karaga", year: "2023", status: "completed" },
             { name: "Skills Center", locations: "Nyong", year: "2024", status: "ongoing" }
         ],
-        supportTitle: "Charity & Welfare",
+        supportTitle: "Skills & Welfare",
         supportProjects: [
             { name: "Widows Support", locations: "Constituency Wide", year: "2023", status: "completed" },
             { name: "Food Relief", locations: "Poor Families", year: "2023", status: "completed" },
@@ -126,6 +126,24 @@ const dashboardData = {
             { val: "2", label: "Social Centers" }
         ],
         rate: 82
+    },
+    youth_sports: {
+        infraTitle: "Youth & Sports Complexes",
+        infraProjects: [
+            { name: "Astroturf Pitch", locations: "Karaga Town", year: "2023", status: "completed" },
+            { name: "Youth Center", locations: "Pishigu", year: "2024", status: "ongoing" }
+        ],
+        supportTitle: "Youth & Team Support",
+        supportProjects: [
+            { name: "Jersey Donation", locations: "All Teams", year: "2023", status: "completed" },
+            { name: "Skill Training", locations: "Youth Groups", year: "2023", status: "completed" }
+        ],
+        impactMetrics: [
+            { val: "20+", label: "Teams Supported" },
+            { val: "500+", label: "Youth Trained" },
+            { val: "1", label: "Modern Pitch" }
+        ],
+        rate: 75
     }
 };
 

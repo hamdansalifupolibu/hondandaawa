@@ -1,9 +1,12 @@
 const sqlite3 = require('sqlite3').verbose();
-const db = new sqlite3.Database('./mp_tracker.db', (err) => {
+const path = require('path');
+const dbPath = path.resolve(__dirname, 'mp_tracker.db');
+
+const db = new sqlite3.Database(dbPath, (err) => {
     if (err) {
-        console.error('Error opening database', err.message);
+        console.error('Error opening database at ' + dbPath, err.message);
     } else {
-        console.log('Connected to the SQLite database.');
+        console.log('Connected to the SQLite database at ' + dbPath);
         initDb();
     }
 });
@@ -63,6 +66,18 @@ function initDb() {
             sector TEXT,
             label TEXT,
             val TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
+
+        // Scholarships Table (Dynamic)
+        db.run(`CREATE TABLE IF NOT EXISTS scholarships (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            beneficiary_name TEXT,
+            institution TEXT,
+            amount TEXT,
+            year TEXT,
+            status TEXT,
+            category TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`);
 

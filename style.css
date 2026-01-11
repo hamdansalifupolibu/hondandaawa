@@ -1,32 +1,41 @@
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
 
 :root {
-    /* Color Palette - Deeper and more vibrant */
-    --primary-bg: #0d1a10;
-    --primary-gradient: linear-gradient(135deg, #0d1a10 0%, #162a1c 100%);
+    /* Royal Navy & Gold Palette - Presidential, Trusted, Honest */
+    --primary-bg: #020c1b;
+    --primary-gradient: linear-gradient(135deg, #0a192f 0%, #020c1b 100%);
+
     --accent-gold: #c5a059;
     --accent-gold-soft: rgba(197, 160, 89, 0.15);
-    --accent-green: #2ecc71;
-    --accent-teal: #1abc9c;
-    --card-bg: rgba(255, 255, 255, 0.05);
-    --card-border: rgba(255, 255, 255, 0.1);
-    --glass-bg: rgba(255, 255, 255, 0.08);
-    --glass-blur: blur(15px);
+
+    --accent-cyan: #64ffda;
+    /* Modern, tech-forward accent */
+    --accent-navy-light: #112240;
+
+    --card-bg: rgba(17, 34, 64, 0.4);
+    --card-border: rgba(100, 255, 218, 0.1);
+
+    --glass-bg: rgba(10, 25, 47, 0.7);
+    --glass-blur: blur(10px);
 
     /* Text Colors */
-    --text-main: #ffffff;
-    --text-muted: rgba(255, 255, 255, 0.8);
-    --text-dim: rgba(255, 255, 255, 0.5);
+    --text-main: #e6f1ff;
+    /* Platinum/White-Blue */
+    --text-muted: #8892b0;
+    --text-dim: #495670;
 
     /* Status Colors */
-    --completed: #2ecc71;
-    --ongoing: #f1c40f;
-    --planned: #3498db;
+    --completed: #64ffda;
+    /* Success is now Cyan/Green */
+    --ongoing: #c5a059;
+    /* Gold */
+    --planned: #57cbff;
+    /* Light Blue */
 
     /* Spacing & Borders */
-    --radius-lg: 32px;
-    --radius-md: 20px;
-    --radius-sm: 12px;
+    --radius-lg: 20px;
+    --radius-md: 12px;
+    --radius-sm: 8px;
     --spacing-xs: 8px;
     --spacing-sm: 16px;
     --spacing-md: 24px;
@@ -43,8 +52,10 @@
 body {
     background: var(--primary-bg);
     background-image:
-        radial-gradient(circle at 10% 20%, rgba(197, 160, 89, 0.05) 0%, transparent 40%),
-        radial-gradient(circle at 90% 80%, rgba(26, 188, 156, 0.05) 0%, transparent 40%);
+        radial-gradient(circle at 10% 20%, rgba(100, 255, 218, 0.05) 0%, transparent 40%),
+        /* Cyan tint */
+        radial-gradient(circle at 90% 80%, rgba(197, 160, 89, 0.05) 0%, transparent 40%);
+    /* Gold tint */
     background-attachment: fixed;
     color: var(--text-main);
     min-height: 100vh;
@@ -81,6 +92,10 @@ body {
     gap: var(--spacing-lg);
     margin-bottom: var(--spacing-lg);
     flex-wrap: wrap;
+    position: relative;
+    /* Added for absolute positioning of child */
+    padding-top: 60px;
+    /* Create space for absolute button */
 }
 
 .mp-profile {
@@ -620,16 +635,96 @@ body {
 
 @media (max-width: 768px) {
     .main-dashboard {
-        padding: var(--spacing-md);
+        padding: 15px;
+    }
+
+    /* Header Flow */
+    .dashboard-header {
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        padding-top: 0;
+        gap: 20px;
+    }
+
+    .login-btn-floating {
+        position: relative;
+        top: auto;
+        right: auto;
+        margin-bottom: 15px;
+        /* Space above profile */
+        width: auto;
+        order: -1;
+        /* Ensure it stays at top */
     }
 
     .mp-profile {
         flex-direction: column;
         text-align: center;
+        gap: 15px;
+    }
+
+    .header-stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        width: 100%;
+        min-width: 0;
     }
 
     .project-grid {
         grid-template-columns: 1fr;
+    }
+
+    /* Toolbar & Filters Stack */
+    .toolbar-container {
+        flex-direction: column;
+        align-items: stretch !important;
+        gap: 12px;
+    }
+
+    .filters-group {
+        flex-direction: column;
+        width: 100%;
+        gap: 10px;
+    }
+
+    .search-wrapper,
+    #smart-search,
+    .glass-input {
+        width: 100% !important;
+        min-width: 0 !important;
+    }
+
+    .time-slicer-wrapper {
+        width: 100%;
+    }
+
+    /* Nav Scroll Hidden */
+    .sector-nav {
+        scrollbar-width: none;
+    }
+
+    .sector-nav::-webkit-scrollbar {
+        display: none;
+    }
+}
+
+@media (max-width: 480px) {
+    .header-stats-grid {
+        grid-template-columns: 1fr;
+        /* Stack stats on small phones */
+    }
+
+    .mp-info h1 {
+        font-size: 1.8rem;
+    }
+
+    .login-btn-floating {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .stat-value {
+        font-size: 1.5rem;
     }
 }
 
@@ -1116,8 +1211,12 @@ select.form-control {
     gap: 8px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    margin-left: auto;
-    /* Push to right if in flex container */
+
+    /* Absolute Positioning Top Right */
+    position: absolute;
+    top: 0;
+    right: 0;
+    margin: 0;
 }
 
 .login-btn-floating:hover {
