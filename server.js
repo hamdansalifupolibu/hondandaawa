@@ -1,7 +1,19 @@
 console.log("Starting Server Process...");
+const fs = require('fs');
+const path = require('path');
+
+// --- CRASH LOGGING (Immediate) ---
+process.on('uncaughtException', (err) => {
+    const msg = `[CRASH] ${new Date().toISOString()} - ${err.message}\n${err.stack}\n`;
+    console.error(msg);
+    try {
+        fs.appendFileSync(path.join(__dirname, 'crash.log'), msg);
+    } catch (e) { console.error("Failed to write to crash.log", e); }
+    process.exit(1);
+});
+
 require('dotenv').config();
 const express = require('express');
-const path = require('path');
 const cors = require('cors');
 const db = require('./database');
 const authMiddleware = require('./auth');
