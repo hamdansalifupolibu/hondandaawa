@@ -553,7 +553,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, password })
             })
-                .then(res => res.json())
+                .then(async res => {
+                    const ct = res.headers.get("content-type");
+                    if (!ct || !ct.includes("application/json")) {
+                        throw new Error(`Server returned non-JSON: ${await res.text()}`);
+                    }
+                    return res.json();
+                })
                 .then(data => {
                     if (data.token) {
                         currentUser = data;
@@ -646,7 +652,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     fetchDashboardStats(); // Refresh metrics (Total Investment) immediately
                     showToast('Project saved', 'success');
                 } else {
-                    const data = await res.json();
+                    let data;
+                    const ct = res.headers.get("content-type");
+                    if (ct && ct.includes("application/json")) {
+                        data = await res.json();
+                    } else {
+                        throw new Error("Server returned non-JSON error");
+                    }
                     if (data.error === 'Failed to authenticate token' || res.status === 403) {
                         showToast('Session expired. Please login again.', 'error');
                         logout(); // Auto-logout
@@ -1073,7 +1085,14 @@ window.openScholarshipModal = async () => {
 window.fetchScholarships = async () => {
     try {
         const res = await fetch('/api/scholarships');
-        const data = await res.json();
+        let data;
+        const ct = res.headers.get("content-type");
+        if (ct && ct.includes("application/json")) {
+            data = await res.json();
+        } else {
+            console.error("Scholarships Fetch Error (Non-JSON):", await res.text());
+            return;
+        }
         const tbody = document.getElementById('scholarship-tbody');
         if (tbody) {
             tbody.innerHTML = data.scholarships.map(s => `
