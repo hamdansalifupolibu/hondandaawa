@@ -2,6 +2,7 @@ module.exports = {
     apps: [{
         name: "mp-tracker",
         script: "./server.js",
+        cwd: "./",
         env: {
             NODE_ENV: "production",
             PORT: 3000

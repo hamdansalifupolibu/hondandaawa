@@ -1,6 +1,7 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const dbPath = path.resolve(__dirname, 'mp_tracker.db');
+console.log("DEBUG: Resolved Database Path:", dbPath);
 
 let db = null;
 let dbError = null;
