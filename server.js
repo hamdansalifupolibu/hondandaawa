@@ -16,8 +16,7 @@ process.on('uncaughtException', (err) => {
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-// Remove old db import, use pool from database.js
-// const db = require('./database'); 
+
 const authMiddleware = require('./auth');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
