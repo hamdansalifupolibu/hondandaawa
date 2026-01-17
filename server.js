@@ -1,6 +1,7 @@
 console.log("Starting Server Process...");
 const fs = require('fs');
 const path = require('path');
+const { pool } = require('./database');
 
 // --- CRASH LOGGING (Immediate) ---
 process.on('uncaughtException', (err) => {
@@ -15,13 +16,13 @@ process.on('uncaughtException', (err) => {
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const db = require('./database');
+// Remove old db import, use pool from database.js
+// const db = require('./database'); 
 const authMiddleware = require('./auth');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const cron = require('node-cron');
-const fs = require('fs');
 const multer = require('multer');
 const xlsx = require('xlsx');
 
@@ -56,7 +57,6 @@ const authLimiter = rateLimit({
     message: { error: "Too many login/register attempts, please try again later." }
 });
 
-// --- ADMIN VERIFICATION ---
 // --- ADMIN VERIFICATION ---
 const verifyEditor = (req, res, next) => {
     if (!req.userRole || !['super_admin', 'regional_admin', 'editor'].includes(req.userRole)) {
@@ -102,47 +102,41 @@ const clearCache = () => {
     cache.rates = {};
 };
 
-const logAudit = (req, action, details, userOverride = null) => {
-    const user = userOverride || req.user || { id: null, username: 'anonymous' };
-    const headers = req.headers || {};
-    const socket = req.socket || {};
-    const ip = headers['x-forwarded-for'] || socket.remoteAddress || 'unknown';
+const logAudit = async (req, action, details, userOverride = null) => {
+    try {
+        const user = userOverride || req.user || { id: null, username: 'anonymous' };
+        const headers = req.headers || {};
+        const socket = req.socket || {};
+        const ip = headers['x-forwarded-for'] || socket.remoteAddress || 'unknown';
 
-    const stmt = db.prepare("INSERT INTO audit_logs (user_id, username, action, details, ip_address) VALUES (?, ?, ?, ?, ?)");
-    stmt.run(user.id, user.username, action, JSON.stringify(details), ip, (err) => {
-        if (err) console.error('Audit Log Error:', err);
-    });
-    stmt.finalize();
+        const sql = "INSERT INTO audit_logs (user_id, username, action, details, ip_address) VALUES (?, ?, ?, ?, ?)";
+        await pool.execute(sql, [user.id, user.username, action, JSON.stringify(details), ip]);
+    } catch (err) {
+        console.error('Audit Log Error:', err.message);
+    }
 };
 
 // --- BACKUPS ---
 cron.schedule('0 0 * * *', () => {
-    const backupDir = path.join(__dirname, 'backups');
-    if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir);
-
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const source = path.join(__dirname, 'mp_tracker.db');
-    const dest = path.join(backupDir, `mp_tracker_backup_${timestamp}.db`);
-
-    fs.copyFile(source, dest, (err) => {
-        if (err) console.error('Backup failed:', err);
-        else console.log('Database backup successful:', dest);
-    });
+    // MySQL backups should be handled by the hosting provider or separate dump script
+    console.log('Daily backup trigger: Please ensure MySQL database is backed up via Hostinger control panel.');
 });
 
 // --- API ROUTES ---
 
 // Health Check
-app.get('/api/health', (req, res) => {
-    db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='projects'", (err, row) => {
-        if (err) return res.status(500).json({ status: 'error', message: 'Database connection failed: ' + err.message });
-        if (!row) return res.status(500).json({ status: 'error', message: 'Database connected but tables missing. Upload mp_tracker.db!' });
+app.get('/api/health', async (req, res) => {
+    try {
+        await pool.query("SELECT 1");
         res.json({ status: 'ok', message: 'System healthy' });
-    });
+    } catch (err) {
+        res.status(500).json({ status: 'error', message: 'Database connection failed: ' + err.message });
+    }
 });
 
 // --- SEEDING ENDPOINT (Repair Kit) ---
-app.get('/api/seed', (req, res) => {
+app.get('/api/seed', async (req, res) => {
+    let connection;
     try {
         const seedPath = path.resolve(__dirname, 'projects_dump.json');
         if (!fs.existsSync(seedPath)) return res.status(404).json({ error: 'Seed file not found' });
@@ -151,201 +145,187 @@ app.get('/api/seed', (req, res) => {
         let inserted = 0;
         let errors = 0;
 
-        db.serialize(() => {
-            // FORCE TABLE CREATION (Repair Schema)
-            db.run(`CREATE TABLE IF NOT EXISTS projects (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT,
-                locations TEXT, 
-                sector TEXT,
-                year TEXT,
-                status TEXT,
-                category TEXT,
-                community TEXT,
-                image_url TEXT,
-                project_cost TEXT,
-                funding_source TEXT,
-                beneficiary_count INTEGER,
-                contractor TEXT,
-                description TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )`);
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
 
-            // Insert Data
-            const stmt = db.prepare(`INSERT OR IGNORE INTO projects (id, name, locations, sector, year, status, category, community, created_at, image_url, project_cost, funding_source, beneficiary_count, contractor, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+        // Note: Using schema.sql is preferred for table creation. 
+        // This endpoint will just focus on data insertion.
 
-            seedData.forEach(p => {
-                stmt.run(p.id, p.name, p.locations, p.sector, p.year, p.status, p.category, p.community, p.created_at, p.image_url, p.project_cost, p.funding_source, p.beneficiary_count, p.contractor, p.description, (err) => {
-                    if (err) errors++;
-                    else inserted++;
-                });
-            });
+        const stmt = `INSERT IGNORE INTO projects (id, name, locations, sector, year, status, category, community, created_at, image_url, project_cost, funding_source, beneficiary_count, contractor, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
-            stmt.finalize(() => {
-                res.json({ message: `Seeding complete. Inserted: ${inserted}, Errors/Duplicates: ${errors}` });
-            });
-        });
+        for (const p of seedData) {
+            try {
+                await connection.execute(stmt, [p.id, p.name, p.locations, p.sector, p.year, p.status, p.category, p.community, p.created_at, p.image_url, p.project_cost, p.funding_source, p.beneficiary_count, p.contractor, p.description]);
+                inserted++;
+            } catch (err) {
+                console.error("Seed Insert Error:", err.message);
+                errors++;
+            }
+        }
+
+        await connection.commit();
+        res.json({ message: `Seeding complete. Inserted: ${inserted}, Errors/Duplicates: ${errors}` });
 
     } catch (e) {
+        if (connection) await connection.rollback();
         res.status(500).json({ error: e.message });
+    } finally {
+        if (connection) connection.release();
     }
 });
 
 // Projects (Cached)
-app.get('/api/projects', (req, res) => {
-    const cacheKey = JSON.stringify(req.query);
-    if (cache.projects[cacheKey]) return res.json(cache.projects[cacheKey]);
+app.get('/api/projects', async (req, res) => {
+    try {
+        const cacheKey = JSON.stringify(req.query);
+        if (cache.projects[cacheKey]) return res.json(cache.projects[cacheKey]);
 
-    const { sector, year_start, year_end, search, status, funding, page = 1, limit = 10 } = req.query;
-    const offset = (page - 1) * limit;
+        const { sector, year_start, year_end, search, status, funding, page = 1, limit = 10 } = req.query;
+        const offset = (page - 1) * limit;
 
-    let baseQuery = "FROM projects WHERE 1=1"; // changed to 1=1 for easier appending
-    const params = [];
+        let baseQuery = "FROM projects WHERE 1=1";
+        const params = [];
 
-    // Always exclude archived unless specifically requested (optional, but keeping existing logic spirit involved)
-    baseQuery += " AND status != 'archived'";
+        // Always exclude archived unless specifically requested
+        baseQuery += " AND status != 'archived'";
 
-    if (sector && sector !== 'all') {
-        baseQuery += ' AND sector = ?';
-        params.push(sector);
+        if (sector && sector !== 'all') {
+            baseQuery += ' AND sector = ?';
+            params.push(sector);
+        }
+
+        if (year_start && year_end) {
+            baseQuery += ' AND year >= ? AND year <= ?';
+            params.push(year_start, year_end);
+        }
+
+        if (search) {
+            baseQuery += ' AND (name LIKE ? OR locations LIKE ? OR contractor LIKE ? OR description LIKE ?)';
+            const term = `%${search}%`;
+            params.push(term, term, term, term);
+        }
+
+        if (status && status !== 'all') {
+            baseQuery += ' AND status = ?';
+            params.push(status.toLowerCase());
+        }
+
+        if (funding && funding !== 'all') {
+            baseQuery += ' AND funding_source LIKE ?';
+            params.push(`%${funding}%`);
+        }
+
+        const countQuery = `SELECT COUNT(*) as total ${baseQuery}`;
+        // Important: MySQL LIMIT requires integers, parameters are safe but need consistent typing.
+        // Also note: standard mysql2 params handling works for LIMIT too.
+        const dataQuery = `SELECT * ${baseQuery} ORDER BY id DESC LIMIT ? OFFSET ?`;
+
+        const [countRows] = await pool.query(countQuery, params);
+        const total = countRows[0] ? countRows[0].total : 0;
+
+        const [rows] = await pool.query(dataQuery, [...params, parseInt(limit), parseInt(offset)]);
+
+        const result = {
+            projects: rows,
+            pagination: { total, page: parseInt(page), limit: parseInt(limit), totalPages: Math.ceil(total / limit) }
+        };
+        cache.projects[cacheKey] = result;
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ error: 'Database error: ' + err.message });
     }
-
-    if (year_start && year_end) {
-        baseQuery += ' AND year >= ? AND year <= ?';
-        params.push(year_start, year_end);
-    }
-
-    if (search) {
-        baseQuery += ' AND (name LIKE ? OR locations LIKE ? OR contractor LIKE ? OR description LIKE ?)';
-        const term = `%${search}%`;
-        params.push(term, term, term, term);
-    }
-
-    if (status && status !== 'all') {
-        baseQuery += ' AND status = ?';
-        params.push(status.toLowerCase());
-    }
-
-    if (funding && funding !== 'all') {
-        baseQuery += ' AND funding_source LIKE ?';
-        params.push(`%${funding}%`);
-    }
-
-    const countQuery = `SELECT COUNT(*) as total ${baseQuery}`;
-    const dataQuery = `SELECT * ${baseQuery} ORDER BY id DESC LIMIT ? OFFSET ?`;
-
-    db.get(countQuery, params, (err, countRow) => {
-        if (err) return res.status(500).json({ error: err.message });
-
-        const total = countRow ? countRow.total : 0;
-
-        db.all(dataQuery, [...params, limit, offset], (err, rows) => {
-            if (err) return res.status(500).json({ error: err.message });
-
-            const result = {
-                projects: rows,
-                pagination: { total, page: parseInt(page), limit: parseInt(limit), totalPages: Math.ceil(total / limit) }
-            };
-            cache.projects[cacheKey] = result;
-            res.json(result);
-        });
-    });
 });
 
 // Create Project
-app.post('/api/projects', authMiddleware, verifyEditor, upload.single('image'), (req, res) => {
-    let { name, locations, sector, year, status, category, community, project_cost, funding_source, beneficiary_count, contractor, description } = req.body;
-    const image_url = req.file ? `/uploads/projects/${req.file.filename}` : null;
+app.post('/api/projects', authMiddleware, verifyEditor, upload.single('image'), async (req, res) => {
+    try {
+        let { name, locations, sector, year, status, category, community, project_cost, funding_source, beneficiary_count, contractor, description } = req.body;
+        const image_url = req.file ? `/uploads/projects/${req.file.filename}` : null;
 
-    if (!name || !sector) return res.status(400).json({ error: 'Name and Sector are required' });
+        if (!name || !sector) return res.status(400).json({ error: 'Name and Sector are required' });
 
-    // Sanitize Cost
-    if (project_cost) {
-        // Remove everything except numbers and decimals
-        project_cost = String(project_cost).replace(/[^0-9.]/g, '');
-    }
-
-    const stmt = `INSERT INTO projects (name, locations, sector, year, status, category, community, image_url, project_cost, funding_source, beneficiary_count, contractor, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
-    db.run(stmt, [name, locations, sector, year, status, category, community, image_url, project_cost, funding_source, beneficiary_count, contractor, description], function (err) {
-        if (err) {
-            console.error('Database INSERT Error:', err);
-            return res.status(500).json({ error: 'Database error: ' + err.message });
+        // Sanitize Cost
+        if (project_cost) {
+            project_cost = String(project_cost).replace(/[^0-9.]/g, '');
         }
+
+        const stmt = `INSERT INTO projects (name, locations, sector, year, status, category, community, image_url, project_cost, funding_source, beneficiary_count, contractor, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        const [result] = await pool.execute(stmt, [name, locations, sector, year, status, category, community, image_url, project_cost, funding_source, beneficiary_count, contractor, description]);
+
         clearCache();
-        logAudit(req, 'CREATE_PROJECT', { id: this.lastID, name });
-        res.status(201).json({ id: this.lastID, message: 'Project created', image_url });
-    });
+        logAudit(req, 'CREATE_PROJECT', { id: result.insertId, name });
+        res.status(201).json({ id: result.insertId, message: 'Project created', image_url });
+    } catch (err) {
+        console.error('Database INSERT Error:', err);
+        res.status(500).json({ error: 'Database error: ' + err.message });
+    }
 });
 
 // Update Project
-app.put('/api/projects/:id', authMiddleware, verifyEditor, upload.single('image'), (req, res) => {
-    const { id } = req.params;
-    let { name, locations, sector, year, status, category, community, project_cost, funding_source, beneficiary_count, contractor, description } = req.body;
+app.put('/api/projects/:id', authMiddleware, verifyEditor, upload.single('image'), async (req, res) => {
+    try {
+        const { id } = req.params;
+        let { name, locations, sector, year, status, category, community, project_cost, funding_source, beneficiary_count, contractor, description } = req.body;
 
-    // Sanitize Cost
-    if (project_cost) {
-        project_cost = String(project_cost).replace(/[^0-9.]/g, '');
-    }
-
-    let sql = `UPDATE projects SET name=?, locations=?, sector=?, year=?, status=?, category=?, community=?, project_cost=?, funding_source=?, beneficiary_count=?, contractor=?, description=?`;
-    let params = [name, locations, sector, year, status, category, community, project_cost, funding_source, beneficiary_count, contractor, description];
-
-    if (req.file) {
-        sql += `, image_url=?`;
-        params.push(`/uploads/projects/${req.file.filename}`);
-    }
-
-    sql += ` WHERE id=?`;
-    params.push(id);
-
-    db.run(sql, params, function (err) {
-        if (err) {
-            console.error('Database UPDATE Error:', err);
-            fs.appendFileSync('server_error.log', `${new Date().toISOString()} - DB UPDATE ERROR: ${err.message}\n`);
-            return res.status(500).json({ error: 'Database error: ' + err.message });
+        if (project_cost) {
+            project_cost = String(project_cost).replace(/[^0-9.]/g, '');
         }
-        if (this.changes === 0) return res.status(404).json({ error: 'Project not found' });
+
+        let sql = `UPDATE projects SET name=?, locations=?, sector=?, year=?, status=?, category=?, community=?, project_cost=?, funding_source=?, beneficiary_count=?, contractor=?, description=?`;
+        let params = [name, locations, sector, year, status, category, community, project_cost, funding_source, beneficiary_count, contractor, description];
+
+        if (req.file) {
+            sql += `, image_url=?`;
+            params.push(`/uploads/projects/${req.file.filename}`);
+        }
+
+        sql += ` WHERE id=?`;
+        params.push(id);
+
+        const [result] = await pool.execute(sql, params);
+
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Project not found' });
         clearCache();
         logAudit(req, 'UPDATE_PROJECT', { id, changes: req.body });
         res.json({ message: 'Project updated' });
-    });
+    } catch (err) {
+        console.error('Database UPDATE Error:', err);
+        fs.appendFileSync('server_error.log', `${new Date().toISOString()} - DB UPDATE ERROR: ${err.message}\n`);
+        res.status(500).json({ error: 'Database error: ' + err.message });
+    }
 });
 
 // Delete Project
-// Delete Project
-app.delete('/api/projects/:id', authMiddleware, verifyEditor, verifyDeletePermission, (req, res) => {
-    const { id } = req.params;
-    const stmt = `UPDATE projects SET status='archived' WHERE id=?`;
-    db.run(stmt, [id], function (err) {
-        if (err) return res.status(500).json({ error: err.message });
-        if (this.changes === 0) return res.status(404).json({ error: 'Project not found' });
+app.delete('/api/projects/:id', authMiddleware, verifyEditor, verifyDeletePermission, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const stmt = `UPDATE projects SET status='archived' WHERE id=?`;
+        const [result] = await pool.execute(stmt, [id]);
+
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Project not found' });
         clearCache();
         logAudit(req, 'DELETE_PROJECT', { id });
         res.json({ message: 'Project archived' });
-    });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // Bulk Upload
-// Bulk Upload
-
-// Download Template Endpoint
+// Download Template Endpoint (No DB changes)
 app.get('/api/projects/template', (req, res) => {
     try {
         const headers = [
             'Name', 'Locations', 'Sector', 'Category', 'Year', 'Status',
             'Cost', 'Funding', 'Beneficiaries', 'Contractor', 'Description'
         ];
-
-        // Create a dummy row for example
         const exampleRow = [
             'Example School Block', 'Tamale, Northern', 'Education', 'Infrastructure', '2025', 'Planned',
             '50000', 'MP Common Fund', '1500', 'ABC Construction', 'Construction of a 3-unit classroom block'
         ];
-
         const wb = xlsx.utils.book_new();
         const ws = xlsx.utils.aoa_to_sheet([headers, exampleRow]);
         xlsx.utils.book_append_sheet(wb, ws, 'Template');
-
         const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
 
         res.setHeader('Content-Disposition', 'attachment; filename="Project_Upload_Template.xlsx"');
@@ -357,19 +337,15 @@ app.get('/api/projects/template', (req, res) => {
     }
 });
 
-app.post('/api/projects/bulk-upload', authMiddleware, verifyUploader, memoryUpload.single('file'), (req, res) => {
+app.post('/api/projects/bulk-upload', authMiddleware, verifyUploader, memoryUpload.single('file'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
+    let connection;
     try {
         const wb = xlsx.read(req.file.buffer, { type: 'buffer' });
         const sheetName = wb.SheetNames[0];
-
-        // Read as array of arrays to find the header row manually
         const rawData = xlsx.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1 });
 
-        console.log(`[Bulk Upload] Total rows read: ${rawData.length}`);
-
-        // Find the header row (look for "name" and "sector")
         let headerRowIndex = -1;
         let headers = [];
 
@@ -383,13 +359,9 @@ app.post('/api/projects/bulk-upload', authMiddleware, verifyUploader, memoryUplo
         }
 
         if (headerRowIndex === -1) {
-            console.log('[Bulk Upload] Could not find valid header row (Name, Sector).');
             return res.status(400).json({ error: 'Invalid file format. Header row with "Name" and "Sector" not found.' });
         }
 
-        console.log(`[Bulk Upload] Found headers at row ${headerRowIndex}:`, headers);
-
-        // Map column indices to keys
         const colMap = {};
         headers.forEach((h, idx) => {
             if (['name', 'locations', 'sector', 'year', 'status', 'category', 'community', 'project_cost', 'cost', 'funding_source', 'funding', 'beneficiary_count', 'beneficiaries', 'contractor', 'description'].includes(h)) {
@@ -401,220 +373,223 @@ app.post('/api/projects/bulk-upload', authMiddleware, verifyUploader, memoryUplo
         let inserted = 0;
         let skipped = 0;
 
-        db.serialize(() => {
-            db.run('BEGIN TRANSACTION');
-            // Added 'image_url' and new fields (cost, funding, beneficiaries, contractor, description)
-            const stmt = db.prepare(`INSERT INTO projects (name, locations, sector, year, status, category, community, image_url, project_cost, funding_source, beneficiary_count, contractor, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
 
-            rowsToProcess.forEach((rowArray, idx) => {
-                const row = {};
-                // Extract data using colMap
-                Object.keys(colMap).forEach(key => {
-                    row[key] = rowArray[colMap[key]];
-                });
+        const stmt = `INSERT INTO projects (name, locations, sector, year, status, category, community, image_url, project_cost, funding_source, beneficiary_count, contractor, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
-                if (row.name && row.sector) {
-                    stmt.run([
-                        String(row.name).trim(),
-                        String(row.locations || '').trim(),
-                        String(row.sector).toLowerCase().trim(),
-                        String(row.year || '').trim(),
-                        row.status ? String(row.status).toLowerCase().trim() : 'planned',
-                        row.category ? String(row.category).toLowerCase().trim() : 'infrastructure',
-                        String(row.community || '').trim(),
-                        null
-                    ]);
-                    inserted++;
-                } else {
-                    if (idx < 3) console.log(`[Bulk Upload] Skipped Data Row ${idx}:`, row);
-                    skipped++;
-                }
-            });
+        for (let idx = 0; idx < rowsToProcess.length; idx++) {
+            const rowArray = rowsToProcess[idx];
+            const row = {};
+            Object.keys(colMap).forEach(key => row[key] = rowArray[colMap[key]]);
 
-            stmt.finalize();
-            db.run('COMMIT', () => {
-                clearCache();
-                logAudit(req, 'BULK_UPLOAD', { inserted, skipped });
-                console.log(`[Bulk Upload] Completed. Inserted: ${inserted}, Skipped: ${skipped}`);
-                res.json({ message: 'Upload processed', inserted, skipped });
-            });
-        });
+            if (row.name && row.sector) {
+                await connection.execute(stmt, [
+                    String(row.name).trim(),
+                    String(row.locations || '').trim(),
+                    String(row.sector).toLowerCase().trim(),
+                    String(row.year || '').trim(),
+                    row.status ? String(row.status).toLowerCase().trim() : 'planned',
+                    row.category ? String(row.category).toLowerCase().trim() : 'infrastructure',
+                    String(row.community || '').trim(),
+                    null, // image_url
+                    row.project_cost || row.cost || null,
+                    row.funding_source || row.funding || null,
+                    row.beneficiary_count || row.beneficiaries || null,
+                    row.contractor || null,
+                    row.description || null
+                ]);
+                inserted++;
+            } else {
+                skipped++;
+            }
+        }
+
+        await connection.commit();
+        clearCache();
+        logAudit(req, 'BULK_UPLOAD', { inserted, skipped });
+        res.json({ message: 'Upload processed', inserted, skipped });
+
     } catch (err) {
+        if (connection) await connection.rollback();
         console.error(err);
         res.status(500).json({ error: 'Failed to process Excel file' });
+    } finally {
+        if (connection) connection.release();
     }
 });
 
 // --- METRICS & STATS API ---
-app.get('/api/metrics', (req, res) => {
-    const statsQuery = `
-        SELECT 
-            (SELECT COUNT(*) FROM projects) as total,
-            (SELECT COUNT(*) FROM projects WHERE LOWER(status) = 'completed') as completed,
-            (SELECT COUNT(*) FROM projects WHERE LOWER(status) = 'ongoing') as ongoing
-    `;
+app.get('/api/metrics', async (req, res) => {
+    try {
+        const statsQuery = `
+            SELECT 
+                (SELECT COUNT(*) FROM projects) as total,
+                (SELECT COUNT(*) FROM projects WHERE LOWER(status) = 'completed') as completed,
+                (SELECT COUNT(*) FROM projects WHERE LOWER(status) = 'ongoing') as ongoing
+        `;
 
-    db.get(statsQuery, [], (err, counts) => {
-        if (err) return res.status(500).json({ error: err.message });
+        const [countRows] = await pool.query(statsQuery);
+        const counts = countRows[0];
 
-        db.all("SELECT label, val FROM impact_metrics", [], (err, rows) => {
-            if (err) return res.status(500).json({ error: err.message });
+        const [metricRows] = await pool.query("SELECT label, val FROM impact_metrics");
+        const metrics = {};
+        metricRows.forEach(r => metrics[r.label] = r.val);
 
-            const metrics = {};
-            rows.forEach(r => metrics[r.label] = r.val);
+        // Dynamic Scholarship Count & Total Investment
+        const [scholRows] = await pool.query("SELECT COUNT(*) as total, SUM(amount) as cost FROM scholarships");
+        const scholRow = scholRows[0];
+        const legacyScholCount = (scholRow && scholRow.total) ? scholRow.total : 0;
+        const scholCost = (scholRow && scholRow.cost) ? parseFloat(scholRow.cost) : 0;
 
-            // Dynamic Scholarship Count & Total Investment
-            db.get("SELECT COUNT(*) as total, SUM(amount) as cost FROM scholarships", [], (err, scholRow) => {
-                const legacyScholCount = (scholRow && scholRow.total) ? scholRow.total : 0;
-                const scholCost = (scholRow && scholRow.cost) ? parseFloat(scholRow.cost) : 0;
+        const [projScholRows] = await pool.query("SELECT COUNT(*) as total FROM projects WHERE sector = 'scholarship' AND status != 'archived'");
+        const projScholCount = (projScholRows[0] && projScholRows[0].total) ? projScholRows[0].total : 0;
 
-                // Also count projects that are categorized as 'scholarship'
-                db.get("SELECT COUNT(*) as total FROM projects WHERE sector = 'scholarship' AND status != 'archived'", [], (err, projScholRow) => {
-                    const projScholCount = (projScholRow && projScholRow.total) ? projScholRow.total : 0;
+        metrics['Scholarships'] = (legacyScholCount + projScholCount).toString();
 
-                    // Unified Count
-                    metrics['Scholarships'] = (legacyScholCount + projScholCount).toString();
+        // Calculate Total Investment (Projects + Scholarships)
+        // Note: MySQL REPLACE replaces all occurrences by default, unlike SQLite/JS slightly different behaviors. 
+        // But here we need to be careful with CAST. REPALCE(str, from, to). 
+        // MySQL REPLACE: REPLACE('abc', 'b', 'd') -> 'adc'. 
+        const [projRows] = await pool.query("SELECT SUM(CAST(REPLACE(REPLACE(project_cost, ',', ''), 'GHS', '') AS DECIMAL(15,2))) as total_project_cost FROM projects WHERE status != 'archived'");
+        const projCost = (projRows[0] && projRows[0].total_project_cost) ? parseFloat(projRows[0].total_project_cost) : 0;
+        const totalInvestment = projCost + scholCost;
 
-                    // Calculate Total Investment (Projects + Scholarships)
-                    // Sanitize project_cost by removing commas and 'GHS' before casting to number
-                    db.get("SELECT SUM(CAST(REPLACE(REPLACE(project_cost, ',', ''), 'GHS', '') AS REAL)) as total_project_cost FROM projects WHERE status != 'archived'", [], (err, projRow) => {
-                        const projCost = (projRow && projRow.total_project_cost) ? parseFloat(projRow.total_project_cost) : 0;
-                        const totalInvestment = projCost + scholCost;
+        metrics['Total Investment'] = totalInvestment;
 
-                        metrics['Total Investment'] = totalInvestment;
+        res.json({ counts, metrics });
 
-                        res.json({
-                            counts,
-                            metrics
-                        });
-                    });
-                });
-            });
-        });
-    });
-});
-
-app.put('/api/metrics', authMiddleware, verifySuperAdmin, (req, res) => {
-    const { label, value } = req.body; // label: 'scholarships' or 'beneficiaries'
-    if (!label || !value) return res.status(400).json({ error: 'Label and value required' });
-
-    db.get("SELECT id FROM impact_metrics WHERE label = ?", [label], (err, row) => {
-        if (err) return res.status(500).json({ error: err.message });
-
-        if (row) {
-            db.run("UPDATE impact_metrics SET val = ? WHERE label = ?", [value, label], (err) => {
-                if (err) return res.status(500).json({ error: err.message });
-                clearCache();
-                logAudit(req, 'UPDATE_METRIC', { label, value });
-                res.json({ message: 'Metric updated' });
-            });
-        } else {
-            db.run("INSERT INTO impact_metrics (sector, label, val) VALUES (?, ?, ?)", ['general', label, value], (err) => {
-                if (err) return res.status(500).json({ error: err.message });
-                clearCache();
-                logAudit(req, 'CREATE_METRIC', { label, value });
-                res.json({ message: 'Metric created' });
-            });
-        }
-    });
-});
-
-// Scholarships KPI (Now Dynamic)
-app.get('/api/scholarships', (req, res) => {
-    const { year } = req.query;
-    let query = "SELECT * FROM scholarships ORDER BY created_at DESC";
-    const params = [];
-    if (year) {
-        query = "SELECT * FROM scholarships WHERE year = ? ORDER BY created_at DESC";
-        params.push(year);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
-    db.all(query, params, (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
+});
+
+app.put('/api/metrics', authMiddleware, verifySuperAdmin, async (req, res) => {
+    try {
+        const { label, value } = req.body;
+        if (!label || !value) return res.status(400).json({ error: 'Label and value required' });
+
+        const [rows] = await pool.query("SELECT id FROM impact_metrics WHERE label = ?", [label]);
+
+        if (rows.length > 0) {
+            await pool.execute("UPDATE impact_metrics SET val = ? WHERE label = ?", [value, label]);
+            logAudit(req, 'UPDATE_METRIC', { label, value });
+            res.json({ message: 'Metric updated' });
+        } else {
+            await pool.execute("INSERT INTO impact_metrics (sector, label, val) VALUES (?, ?, ?)", ['general', label, value]);
+            logAudit(req, 'CREATE_METRIC', { label, value });
+            res.json({ message: 'Metric created' });
+        }
+        clearCache();
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Scholarships KPI
+app.get('/api/scholarships', async (req, res) => {
+    try {
+        const { year } = req.query;
+        let query = "SELECT * FROM scholarships ORDER BY created_at DESC";
+        const params = [];
+        if (year) {
+            query = "SELECT * FROM scholarships WHERE year = ? ORDER BY created_at DESC";
+            params.push(year);
+        }
+        const [rows] = await pool.query(query, params);
         res.json({ scholarships: rows });
-    });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
-app.post('/api/scholarships', authMiddleware, verifyEditor, (req, res) => {
-    const { beneficiary_name, institution, amount, year, status, category } = req.body;
-    if (!beneficiary_name || !institution) return res.status(400).json({ error: 'Name and Institution required' });
+app.post('/api/scholarships', authMiddleware, verifyEditor, async (req, res) => {
+    try {
+        const { beneficiary_name, institution, amount, year, status, category } = req.body;
+        if (!beneficiary_name || !institution) return res.status(400).json({ error: 'Name and Institution required' });
 
-    const stmt = db.prepare("INSERT INTO scholarships (beneficiary_name, institution, amount, year, status, category) VALUES (?, ?, ?, ?, ?, ?)");
-    stmt.run(beneficiary_name, institution, amount, year, status || 'Pending', category || 'Tertiary', function (err) {
-        if (err) return res.status(500).json({ error: err.message });
-        logAudit(req, 'CREATE_SCHOLARSHIP', { id: this.lastID, beneficiary_name });
-        res.status(201).json({ id: this.lastID, message: 'Scholarship added' });
-    });
-    stmt.finalize();
+        const [result] = await pool.execute(
+            "INSERT INTO scholarships (beneficiary_name, institution, amount, year, status, category) VALUES (?, ?, ?, ?, ?, ?)",
+            [beneficiary_name, institution, amount, year, status || 'Pending', category || 'Tertiary']
+        );
+        logAudit(req, 'CREATE_SCHOLARSHIP', { id: result.insertId, beneficiary_name });
+        res.status(201).json({ id: result.insertId, message: 'Scholarship added' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
-app.put('/api/scholarships/:id', authMiddleware, verifyEditor, (req, res) => {
-    const { id } = req.params;
-    const { beneficiary_name, institution, amount, year, status, category } = req.body;
+app.put('/api/scholarships/:id', authMiddleware, verifyEditor, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { beneficiary_name, institution, amount, year, status, category } = req.body;
 
-    const stmt = db.prepare("UPDATE scholarships SET beneficiary_name=?, institution=?, amount=?, year=?, status=?, category=? WHERE id=?");
-    stmt.run(beneficiary_name, institution, amount, year, status, category, id, function (err) {
-        if (err) return res.status(500).json({ error: err.message });
+        await pool.execute(
+            "UPDATE scholarships SET beneficiary_name=?, institution=?, amount=?, year=?, status=?, category=? WHERE id=?",
+            [beneficiary_name, institution, amount, year, status, category, id]
+        );
         logAudit(req, 'UPDATE_SCHOLARSHIP', { id });
         res.json({ message: 'Scholarship updated' });
-    });
-    stmt.finalize();
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
-app.delete('/api/scholarships/:id', authMiddleware, verifyEditor, (req, res) => {
-    const { id } = req.params;
-    db.run("DELETE FROM scholarships WHERE id = ?", [id], function (err) {
-        if (err) return res.status(500).json({ error: err.message });
+app.delete('/api/scholarships/:id', authMiddleware, verifyEditor, async (req, res) => {
+    try {
+        const { id } = req.params;
+        await pool.execute("DELETE FROM scholarships WHERE id = ?", [id]);
         logAudit(req, 'DELETE_SCHOLARSHIP', { id });
         res.json({ message: 'Scholarship deleted' });
-    });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
-app.get('/api/impact-metrics', (req, res) => {
-    const { sector } = req.query;
-    let query = 'SELECT * FROM impact_metrics';
-    const params = [];
-    if (sector) { query += ' WHERE sector = ?'; params.push(sector); }
+app.get('/api/impact-metrics', async (req, res) => {
+    try {
+        const { sector } = req.query;
+        let query = 'SELECT * FROM impact_metrics';
+        const params = [];
+        if (sector) { query += ' WHERE sector = ?'; params.push(sector); }
 
-    db.all(query, params, (err, metricsRows) => {
-        if (err) return res.status(500).json({ error: err.message });
+        const [metricsRows] = await pool.query(query, params);
 
-        // Calculate Dynamic Sector Investment
-        let investQuery = "SELECT SUM(CAST(REPLACE(REPLACE(project_cost, ',', ''), 'GHS', '') AS REAL)) as total FROM projects WHERE status != 'archived'";
+        let investQuery = "SELECT SUM(CAST(REPLACE(REPLACE(project_cost, ',', ''), 'GHS', '') AS DECIMAL(15,2))) as total FROM projects WHERE status != 'archived'";
         let investParams = [];
-
         if (sector) {
             investQuery += " AND sector = ?";
             investParams.push(sector);
         }
 
-        db.get(investQuery, investParams, (err, row) => {
-            const total = (row && row.total) ? row.total : 0;
+        const [row] = await pool.query(investQuery, investParams);
+        const total = (row[0] && row[0].total) ? parseFloat(row[0].total) : 0;
 
-            // Format Currency
-            let formattedTotal = `GHS ${total.toLocaleString()}`;
-            if (total >= 1000000) formattedTotal = `GHS ${(total / 1000000).toFixed(1)}M`;
-            else if (total >= 1000) formattedTotal = `GHS ${(total / 1000).toFixed(1)}K`;
+        let formattedTotal = `GHS ${total.toLocaleString()}`;
+        if (total >= 1000000) formattedTotal = `GHS ${(total / 1000000).toFixed(1)}M`;
+        else if (total >= 1000) formattedTotal = `GHS ${(total / 1000).toFixed(1)}K`;
 
-            // Append to metrics
-            metricsRows.push({
-                label: 'Sector Investment',
-                val: formattedTotal
-            });
-
-            res.json({ metrics: metricsRows });
+        metricsRows.push({
+            label: 'Sector Investment',
+            val: formattedTotal
         });
-    });
+
+        res.json({ metrics: metricsRows });
+
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
-app.get('/api/communities', (req, res) => {
-    const query = `
-        SELECT community,
-            SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
-            SUM(CASE WHEN status = 'ongoing' THEN 1 ELSE 0 END) as ongoing
-        FROM projects GROUP BY community
-    `;
-    db.all(query, [], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
+app.get('/api/communities', async (req, res) => {
+    try {
+        const query = `
+            SELECT community,
+                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+                SUM(CASE WHEN status = 'ongoing' THEN 1 ELSE 0 END) as ongoing
+            FROM projects GROUP BY community
+        `;
+        const [rows] = await pool.query(query);
         const communities = rows.map(row => ({
             name: row.community,
             completed: row.completed,
@@ -622,46 +597,56 @@ app.get('/api/communities', (req, res) => {
             update: "Just now"
         }));
         res.json(communities);
-    });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
-app.get('/api/completion-rates', (req, res) => {
-    const { sector } = req.query;
-    let query = 'SELECT * FROM completion_rates';
-    const params = [];
-    if (sector) { query += ' WHERE sector = ?'; params.push(sector); }
-    db.all(query, params, (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
+app.get('/api/completion-rates', async (req, res) => {
+    try {
+        const { sector } = req.query;
+        let query = 'SELECT * FROM completion_rates';
+        const params = [];
+        if (sector) { query += ' WHERE sector = ?'; params.push(sector); }
+
+        const [rows] = await pool.query(query, params);
         res.json({ rates: rows });
-    });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // --- AUTHENTICATION ---
-
 app.post('/api/register', authLimiter, async (req, res) => {
-    const { username, password, role } = req.body;
-    const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d|.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{8,}$/;
-    if (!passwordRegex.test(password)) return res.status(400).json({ error: "Password does not meet complexity requirements." });
+    try {
+        const { username, password, role } = req.body;
+        const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d|.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{8,}$/;
+        if (!passwordRegex.test(password)) return res.status(400).json({ error: "Password does not meet complexity requirements." });
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const validRoles = ['super_admin', 'regional_admin', 'analyst', 'editor'];
+        const userRole = (role && validRoles.includes(role)) ? role : 'public_viewer';
+        const status = 'pending';
 
-    const validRoles = ['super_admin', 'regional_admin', 'analyst', 'editor'];
-    const userRole = (role && validRoles.includes(role)) ? role : 'public_viewer';
-    const status = 'pending';
-
-    const stmt = db.prepare("INSERT INTO users (username, password, role, status) VALUES (?, ?, ?, ?)");
-    stmt.run(username, hashedPassword, userRole, status, function (err) {
-        if (err) return res.status(400).json({ error: "Username already exists" });
+        await pool.execute(
+            "INSERT INTO users (username, password, role, status) VALUES (?, ?, ?, ?)",
+            [username, hashedPassword, userRole, status]
+        );
         logAudit(req, 'REGISTER', { username });
         res.json({ message: "Registration successful. Please wait for admin approval." });
-    });
-    stmt.finalize();
+    } catch (err) {
+        if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: "Username already exists" });
+        res.status(500).json({ error: err.message });
+    }
 });
 
-app.post('/api/login', authLimiter, (req, res) => {
-    const { username, password } = req.body;
-    db.get("SELECT * FROM users WHERE username = ?", [username], async (err, user) => {
-        if (err || !user) {
+app.post('/api/login', authLimiter, async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        const [rows] = await pool.query("SELECT * FROM users WHERE username = ?", [username]);
+        const user = rows[0];
+
+        if (!user) {
             logAudit(req, 'LOGIN_FAIL', { reason: 'User not found' }, { username, id: null });
             return res.status(400).json({ error: "Invalid credentials" });
         }
@@ -681,93 +666,102 @@ app.post('/api/login', authLimiter, (req, res) => {
             return res.status(400).json({ error: "Invalid credentials" });
         }
 
-        const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, process.env.JWT_SECRET || 'super_secret_key_change_me', { expiresIn: '24h' });
-
+        const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, SECRET_KEY, { expiresIn: '24h' });
         logAudit(req, 'LOGIN_SUCCESS', {}, user);
         res.json({ token, role: user.role, username: user.username });
-    });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // --- USER MANAGEMENT ---
-
-app.get('/api/users', authMiddleware, verifySuperAdmin, (req, res) => {
-    db.all("SELECT id, username, role, status, created_at FROM users", [], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
+app.get('/api/users', authMiddleware, verifySuperAdmin, async (req, res) => {
+    try {
+        const [rows] = await pool.query("SELECT id, username, role, status, created_at FROM users");
         res.json({ users: rows });
-    });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 app.post('/api/users', authMiddleware, verifySuperAdmin, async (req, res) => {
-    const { username, password, role } = req.body;
-    if (!username || !password || !role) return res.status(400).json({ error: "All fields required" });
+    try {
+        const { username, password, role } = req.body;
+        if (!username || !password || !role) return res.status(400).json({ error: "All fields required" });
 
-    const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d|.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{8,}$/;
-    if (!passwordRegex.test(password)) return res.status(400).json({ error: "Password lacking complexity" });
+        const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d|.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{8,}$/;
+        if (!passwordRegex.test(password)) return res.status(400).json({ error: "Password lacking complexity" });
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const stmt = db.prepare("INSERT INTO users (username, password, role, status) VALUES (?, ?, ?, 'approved')");
+        const hashedPassword = await bcrypt.hash(password, 10);
+        await pool.execute("INSERT INTO users (username, password, role, status) VALUES (?, ?, ?, 'approved')", [username, hashedPassword, role]);
 
-    stmt.run(username, hashedPassword, role, function (err) {
-        if (err) return res.status(400).json({ error: "Username likely exists" });
         logAudit(req, 'CREATE_USER_ADMIN', { username, role });
         res.status(201).json({ message: "User created" });
-    });
-    stmt.finalize();
+    } catch (err) {
+        if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: "Username likely exists" });
+        res.status(500).json({ error: err.message });
+    }
 });
 
-app.put('/api/users/:id/status', authMiddleware, verifySuperAdmin, (req, res) => {
-    const { id } = req.params;
-    const { status } = req.body;
-    if (!['approved', 'blocked', 'pending'].includes(status)) return res.status(400).json({ error: "Invalid status" });
+app.put('/api/users/:id/status', authMiddleware, verifySuperAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body;
+        if (!['approved', 'blocked', 'pending'].includes(status)) return res.status(400).json({ error: "Invalid status" });
 
-    db.run("UPDATE users SET status = ? WHERE id = ?", [status, id], function (err) {
-        if (err) return res.status(500).json({ error: err.message });
+        await pool.execute("UPDATE users SET status = ? WHERE id = ?", [status, id]);
         logAudit(req, 'UPDATE_USER_STATUS', { targetId: id, status });
         res.json({ message: `User status updated to ${status}` });
-    });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 app.put('/api/users/:id', authMiddleware, verifySuperAdmin, async (req, res) => {
-    const { id } = req.params;
-    const { password, role } = req.body;
+    try {
+        const { id } = req.params;
+        const { password, role } = req.body;
 
-    let updates = [];
-    let params = [];
+        let updates = [];
+        let params = [];
 
-    if (password) {
-        const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d|.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{8,}$/;
-        if (!passwordRegex.test(password)) return res.status(400).json({ error: "Password must be 8+ chars and include number/special char." });
+        if (password) {
+            const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d|.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{8,}$/;
+            if (!passwordRegex.test(password)) return res.status(400).json({ error: "Password must be 8+ chars and include number/special char." });
 
-        const hashedPassword = await bcrypt.hash(password, 10);
-        updates.push("password = ?");
-        params.push(hashedPassword);
-    }
+            const hashedPassword = await bcrypt.hash(password, 10);
+            updates.push("password = ?");
+            params.push(hashedPassword);
+        }
 
-    if (role) {
-        if (!['super_admin', 'regional_admin', 'analyst', 'editor', 'public_viewer'].includes(role)) return res.status(400).json({ error: "Invalid role" });
-        updates.push("role = ?");
-        params.push(role);
-    }
+        if (role) {
+            if (!['super_admin', 'regional_admin', 'analyst', 'editor', 'public_viewer'].includes(role)) return res.status(400).json({ error: "Invalid role" });
+            updates.push("role = ?");
+            params.push(role);
+        }
 
-    if (updates.length === 0) return res.status(400).json({ error: "No changes provided" });
+        if (updates.length === 0) return res.status(400).json({ error: "No changes provided" });
 
-    params.push(id);
-    const sql = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
+        params.push(id);
+        const sql = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
+        await pool.execute(sql, params);
 
-    db.run(sql, params, function (err) {
-        if (err) return res.status(500).json({ error: err.message });
         logAudit(req, 'UPDATE_USER', { targetId: id, fields: updates });
         res.json({ message: "User updated successfully" });
-    });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
-app.delete('/api/users/:id', authMiddleware, verifySuperAdmin, (req, res) => {
-    const { id } = req.params;
-    db.run("DELETE FROM users WHERE id = ?", [id], function (err) {
-        if (err) return res.status(500).json({ error: err.message });
+app.delete('/api/users/:id', authMiddleware, verifySuperAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        await pool.execute("DELETE FROM users WHERE id = ?", [id]);
         logAudit(req, 'DELETE_USER', { targetId: id });
         res.json({ message: "User deleted" });
-    });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // --- API 404 HANDLER ---
@@ -785,42 +779,27 @@ app.use((err, req, res, next) => {
     res.status(500).json({
         status: 'error',
         message: 'Internal Server Error',
-        error: err.message // Expose error message for debugging momentarily
+        error: err.message
     });
 });
 
 // --- SHUTDOWN ---
-const gracefulShutdown = () => {
+const gracefulShutdown = async () => {
     console.log('Shutting down gracefully...');
-    db.close((err) => {
-        if (err) console.error('Error closing DB:', err.message);
-        else console.log('Database connection closed.');
+    try {
+        await pool.end();
+        console.log('Database pool closed.');
         process.exit(0);
-    });
+    } catch (err) {
+        console.error('Error closing DB pool:', err.message);
+        process.exit(1);
+    }
 };
 
-process.on('SIGINT', gracefulShutdown);
 process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
 
-// --- SERVER STARTUP ---
-const HOST = '0.0.0.0'; // Critical for cloud hosting
-const server = app.listen(PORT, HOST, () => {
-    console.log(`Server running on http://${HOST}:${PORT}`);
-    console.log(`Node Version: ${process.version}`);
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV}`);
-});
-
-// Capture startup errors
-server.on('error', (e) => {
-    console.error('SERVER LISTEN ERROR:', e.message);
-});
-
-process.on('uncaughtException', (error) => {
-    console.error('CRITICAL UNCAUGHT EXCEPTION:', error);
-    // Keep alive if possible, or log to file
-    fs.appendFileSync('crash.log', `${new Date().toISOString()} CRITICAL: ${error.stack}\n`);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('UNHANDLED REJECTION:', reason);
 });
